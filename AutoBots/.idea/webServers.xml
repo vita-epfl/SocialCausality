@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="35d5eb5a-8cc5-4721-9b87-9d176ae94451" name="izar">
+        <fileTransfer rootFolder="/home/arahimi/" accessType="SFTP" host="izar.epfl.ch" port="22" sshConfigId="2fb901ec-0667-4ac0-9855-89c9135cb834" sshConfig="arahimi@izar.epfl.ch:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
