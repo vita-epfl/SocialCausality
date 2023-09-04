@@ -64,7 +64,7 @@ class Trainer:
                                           use_map_lanes=self.args.use_map_lanes, evaluation=False)
 
         elif "trajnet++" in self.args.dataset:
-            train_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="train")
+            train_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="train", proportion=self.args.low_data)
             val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="val")
 
         elif "Argoverse" in self.args.dataset:

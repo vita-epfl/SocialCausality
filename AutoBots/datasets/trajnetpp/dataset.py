@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 
 
 class TrajNetPPDataset(Dataset):
-    def __init__(self, dset_path, split_name="train"):
+    def __init__(self, dset_path, split_name="train", proportion=1.0):
         self.num_others = 5
         self.pred_horizon = 12
         self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
@@ -19,6 +19,13 @@ class TrajNetPPDataset(Dataset):
         for dset_fname in dset_fnames:
             agents_dataset.append(np.load(dset_fname))
         self.agents_dataset = np.concatenate(agents_dataset)[:, :, :self.num_others+1]
+        # for low-data regimes
+        if proportion != 1.0:
+            # shuffle 
+            dara_len = int(self.agents_dataset.shape[0] * proportion)
+            self.agents_dataset = np.random.permutation(self.agents_dataset)
+            self.agents_dataset = self.agents_dataset[:dara_len]
+
         del agents_dataset
 
     def __getitem__(self, idx: int):
@@ -42,7 +49,7 @@ class TrajNetPPDataset(Dataset):
 
         return ego_in, ego_out, agents_in[:, 1:], roads
     
-    
+
     def __len__(self):
         return len(self.agents_dataset)
 

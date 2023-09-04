@@ -63,6 +63,10 @@ def get_train_args():
 
     # Section: Evaluating
     parser.add_argument("--evaluate_causal", action="store_true", help="Evaluates causality understanding metrics.")
+
+    # Low-data regimes
+    parser.add_argument("--low_data", type=float, default=1.0, help="proportion of training data")
+
     args = parser.parse_args()
 
     if args.use_map_image and args.use_map_lanes:
