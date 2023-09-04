@@ -358,8 +358,7 @@ class Trainer:
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                 elif  "trajnet++" in self.args.dataset:
-                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(data, "Joint")
-                    roads = context_img
+                    ego_in, ego_out, agents_in, roads = self._data_to_device(data)
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
