@@ -90,16 +90,12 @@ def get_train_args():
 def get_eval_args():
     parser = argparse.ArgumentParser(description="AutoBot")
     parser.add_argument("--models-path", type=str, required=True, help="Load model checkpoint")
+    parser.add_argument("--dataset", type=str, required=True, choices=["Argoverse", "Nuscenes", "trajnet++",
+                                                                       "interaction-dataset", "synth"], help="Dataset to evaluate on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Dataset path.")
     parser.add_argument("--batch-size", type=int, default=100, help="Batch size")
     parser.add_argument("--disable-cuda", action="store_true", help="Disable CUDA")
-    parser.add_argument("--synth-v1-subset-filename", type=str, default="val.npy",
-                        help="Filename of the synth-v1 subset to use for evaluation.")
-    parser.add_argument("--synth-v1-cf-evaluation", action="store_true",
-                        help="Whether to run the counterfactual evaluation instead of the standard evaluation")
-    parser.add_argument("--synth-v1-cf-evaluation-raw-synthv1-path", type=str,
-                        default="data/synth_v1.a.filtered.test.pkl",
-                        help="The relative path to the raw synth v1 dataset to run counterfactual evaluation on.")
+    parser.add_argument("--evaluate_causal", action="store_true", help="Evaluates causality understanding metrics.")
     args = parser.parse_args()
 
     config, model_dirname = load_config(args.models_path)
@@ -147,6 +143,8 @@ def save_config(args, results_dirname):
 
 def load_config(model_path):
     model_dirname = os.path.join(*model_path.split("/")[:-1])
+    if model_path[0] == "/":
+        model_dirname = "/" + model_dirname
     assert os.path.isdir(model_dirname)
     with open(os.path.join(model_dirname, 'config.json'), 'r') as fp:
         config = json.load(fp)

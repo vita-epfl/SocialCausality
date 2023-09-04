@@ -324,11 +324,11 @@ class Trainer:
             print("Train minADE c:", train_minade_c[0], "Train minADE 1:", train_minade_1[0], "Train minFDE c:", train_minfde_c[0])
 
             # Log train metrics
-            self.writer.add_scalar("metrics/Train minADE_{}".format(self.args.num_modes), train_minade_c[0], epoch)
+            # self.writer.add_scalar("metrics/Train minADE_{}".format(self.args.num_modes), train_minade_c[0], epoch)
             self.writer.add_scalar("metrics/Train minADE_{}".format(10), train_minade_10[0], epoch)
             self.writer.add_scalar("metrics/Train minADE_{}".format(5), train_minade_5[0], epoch)
             self.writer.add_scalar("metrics/Train minADE_{}".format(1), train_minade_1[0], epoch)
-            self.writer.add_scalar("metrics/Train minFDE_{}".format(self.args.num_modes), train_minfde_c[0], epoch)
+            # self.writer.add_scalar("metrics/Train minFDE_{}".format(self.args.num_modes), train_minfde_c[0], epoch)
             self.writer.add_scalar("metrics/Train minFDE_{}".format(1), train_minfde_1[0], epoch)
 
             # update learning rate
@@ -400,11 +400,11 @@ class Trainer:
             val_minfde_1 = min_xde_K(val_fde_losses, val_mode_probs, K=1)
 
             # Log val metrics
-            self.writer.add_scalar("metrics/Val minADE_{}".format(self.args.num_modes), val_minade_c[0], epoch)
+            # self.writer.add_scalar("metrics/Val minADE_{}".format(self.args.num_modes), val_minade_c[0], epoch)
             self.writer.add_scalar("metrics/Val minADE_{}".format(10), val_minade_10[0], epoch)
             self.writer.add_scalar("metrics/Val minADE_{}".format(5), val_minade_5[0], epoch)
             self.writer.add_scalar("metrics/Val minADE_{}".format(1), val_minade_1[0], epoch)
-            self.writer.add_scalar("metrics/Val minFDE_{}".format(self.args.num_modes), val_minfde_c[0], epoch)
+            # self.writer.add_scalar("metrics/Val minFDE_{}".format(self.args.num_modes), val_minfde_c[0], epoch)
             self.writer.add_scalar("metrics/Val minFDE_{}".format(1), val_minfde_1[0], epoch)
             if self.args.evaluate_causal:
                 self.writer.add_scalar("metrics/Val consistency", np.array(val_consistency).mean(), epoch)
@@ -555,16 +555,17 @@ class Trainer:
     def load_optimiser(self):
         weights = torch.load(self.args.weight_path)
 
-        for param_group in self.optimiser.param_groups:
-            param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
-            param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']
+        if self.args.reg_type == "contrastive":
+            for param_group in self.optimiser.param_groups:
+                param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
+                param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']
 
-        new_ids = [i for i, p in enumerate(self.autobot_model.named_parameters()) if not "contrastive_projector" in p[0]]
-        assert len(new_ids) == len(weights["optimiser"]['state'])
-        new_state_dict = {new_ids[i]: weights["optimiser"]['state'][i] for i in range(len(new_ids))}
-        self.optimiser.state_dict()['state'] = new_state_dict
-
-        # self.optimiser.load_state_dict(weights["optimiser"])
+            new_ids = [i for i, p in enumerate(self.autobot_model.named_parameters()) if not "contrastive_projector" in p[0]]
+            assert len(new_ids) == len(weights["optimiser"]['state'])
+            new_state_dict = {new_ids[i]: weights["optimiser"]['state'][i] for i in range(len(new_ids))}
+            self.optimiser.state_dict()['state'] = new_state_dict
+        else:
+            self.optimiser.load_state_dict(weights["optimiser"])
 
     def save_model(self, epoch=None, minade_k=None, minfde_k=None):
         if epoch is None:

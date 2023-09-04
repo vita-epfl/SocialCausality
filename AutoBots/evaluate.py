@@ -10,12 +10,13 @@ from tqdm import tqdm
 from datasets.argoverse.dataset import ArgoH5Dataset
 from datasets.interaction_dataset.dataset import InteractionDataset
 from datasets.nuscenes.dataset import NuscenesH5Dataset
-from datasets.synth.dataset import SynthV1Dataset
+from datasets.synth.dataset import SynthV1CausalDataset, my_collate_fn
 from datasets.trajnetpp.dataset import TrajNetPPDataset
 from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_eval_args
 from utils.metric_helpers import min_xde_K, yaw_from_predictions, interpolate_trajectories, collisions_for_inter_dataset
+from utils.train_helpers import  calc_consistency_loss, HNC_ARS
 
 
 class Evaluator:
@@ -37,30 +38,26 @@ class Evaluator:
         self.initialize_model()
 
     def initialize_dataloader(self):
-        if "Nuscenes" in self.model_config.dataset:
+        if "Nuscenes" in self.args.dataset:
             val_dset = NuscenesH5Dataset(dset_path=self.args.dataset_path, split_name="val",
                                          model_type=self.model_config.model_type,
                                          use_map_img=self.model_config.use_map_image,
                                          use_map_lanes=self.model_config.use_map_lanes)
 
-        elif "interaction-dataset" in self.model_config.dataset:
+        elif "interaction-dataset" in self.args.dataset:
             val_dset = InteractionDataset(dset_path=self.args.dataset_path, split_name="val",
                                           use_map_lanes=self.model_config.use_map_lanes, evaluation=True)
             self.interact_eval = True
 
-        elif "trajnet++" in self.model_config.dataset:
-            val_dset = TrajNetPPDataset(dset_path=self.model_config.dataset_path, split_name="val")
+        elif "trajnet++" in self.args.dataset:
+            val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="test")
 
-        elif "Argoverse" in self.model_config.dataset:
+        elif "Argoverse" in self.args.dataset:
             val_dset = ArgoH5Dataset(dset_path=self.args.dataset_path, split_name="val",
                                      use_map_lanes=self.model_config.use_map_lanes)
 
-        elif "synth" == self.model_config.dataset:
-            assert self.args.synth_v1_subset_filename is not None
-            assert type(self.args.synth_v1_subset_filename) == str
-            assert len(self.args.synth_v1_subset_filename) > 0
-            val_dset = SynthV1Dataset(dset_path=self.model_config.dataset_path,
-                                      filename=self.args.synth_v1_subset_filename)
+        elif self.args.dataset == "synth":
+            val_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="val")
 
         else:
             raise NotImplementedError
@@ -73,10 +70,16 @@ class Evaluator:
         if "Joint" in self.model_config.model_type:
             self.num_agent_types = val_dset.num_agent_types
 
-        self.val_loader = torch.utils.data.DataLoader(
-            val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
-            pin_memory=False
-        )
+        if self.args.dataset == "synth":
+            self.val_loader = torch.utils.data.DataLoader(
+                val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False, collate_fn=my_collate_fn
+            )
+        else:
+            self.val_loader = torch.utils.data.DataLoader(
+                val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False
+            )
 
         print("Val dataset loaded with length", len(val_dset))
 
@@ -173,7 +176,7 @@ class Evaluator:
             ade_losses.append(ade_error)
         ade_losses = np.array(ade_losses).transpose()
 
-        fde_losses = []
+        fde_losses, ade_losses = []
         for k in range(self.model_config.num_modes):
             fde_error = (torch.norm(preds[k, -1, :, :, :2] - agents_gt[:, -1, :, :2], 2, dim=-1) * agents_masks[:, -1]).cpu().numpy()
             fde_error = np.nanmean(fde_error, axis=1)
@@ -257,142 +260,76 @@ class Evaluator:
             val_ade_losses = []
             val_fde_losses = []
             val_mode_probs = []
+            if self.args.evaluate_causal:
+                val_consistency = []
+                val_HNC, val_ARS = 0, []
             for i, data in enumerate(self.val_loader):
                 if i % 50 == 0:
                     print(i, "/", len(self.val_loader.dataset) // self.args.batch_size)
 
-                if self.model_config.dataset == "synth" or "trajnet++" in self.model_config.dataset:
+                if self.args.dataset == "synth":
+                    scenes, causal_effects, data_splits = data
+                    if not self.args.evaluate_causal:
+                        scenes = [data[data_splits[:-1]] for data in scenes]
+                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
+                    roads = context_img
+                    causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                elif "trajnet++" in self.args.dataset:
                     ego_in, ego_out, agents_in, _, context_img, agent_types = self._data_to_device(data, "Joint")
                     roads = context_img
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                 if "Ego" in self.model_config.model_type:
-                    pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
+                    if self.args.dataset == "synth" and self.model_config.reg_type == "contrastive":
+                        pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
+                    else:
+                        pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
                 elif "Joint" in self.model_config.model_type:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, context_img, agent_types)
                     pred_obs = pred_obs[:, :, :, 0, :]
                 else:
                     raise ValueError
+                if self.args.evaluate_causal:
+                    ade_losses, fde_losses = self._compute_ego_errors(pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2])
+                    consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, 1)
+                    batch_HNC, batch_ARS = HNC_ARS(pred_obs, causal_effects, data_splits)
+                else:
+                    ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
 
-                ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                 val_ade_losses.append(ade_losses)
                 val_fde_losses.append(fde_losses)
-                val_mode_probs.append(mode_probs.detach().cpu().numpy())
+                if self.args.evaluate_causal:
+                    val_mode_probs.append(mode_probs[data_splits[:-1]].detach().cpu().numpy())
+                    val_consistency.append(consistency_loss.item())
+                    val_HNC += batch_HNC
+                    val_ARS += batch_ARS
+                else:
+                    val_mode_probs.append(mode_probs.detach().cpu().numpy())
 
             val_ade_losses = np.concatenate(val_ade_losses)
             val_fde_losses = np.concatenate(val_fde_losses)
             val_mode_probs = np.concatenate(val_mode_probs)
+            if self.args.evaluate_causal:
+                val_ARS = np.concatenate(val_ARS).mean()
+
             val_minade_c = min_xde_K(val_ade_losses, val_mode_probs, K=self.model_config.num_modes)
             val_minade_10 = min_xde_K(val_ade_losses, val_mode_probs, K=min(self.model_config.num_modes, 10))
             val_minade_5 = min_xde_K(val_ade_losses, val_mode_probs, K=5)
             val_minfde_c = min_xde_K(val_fde_losses, val_mode_probs, K=self.model_config.num_modes)
             val_minfde_1 = min_xde_K(val_fde_losses, val_mode_probs, K=1)
 
-            print("minADE_{}:".format(self.model_config.num_modes), val_minade_c[0],
-                  "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
-                  "minFDE_{}:".format(self.model_config.num_modes), val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
-
-    def counterfactual_evaluate(self):
-        raw_synthv1_path = self.args.synth_v1_cf_evaluation_raw_synthv1_path
-        print(f"Counterfactual evaluation will use the raw dataset at: `{os.path.abspath(raw_synthv1_path)}`")
-        with open(raw_synthv1_path, "rb") as f:
-            dataset = pickle.load(f)
-
-        # TODO batchify to make it faster
-        # TODO refactor counterfactual evaluation, e.g. move it to a separate evaluator
-        all_future_trajectories = {}
-        for scene_idx, scene in enumerate(tqdm(dataset["scenes"])):
-            # Factual scene
-            f_traj = scene["trajectories"].transpose((1, 0, 2))
-            f_traj_dicts = self._create_traj_dicts(f_traj)
-
-            # Counterfactual scenes
-            cf_traj_list = [cf_traj.transpose((1, 0, 2)) for cf_traj in scene["remove_agent_i_trajectories"][1:]]
-            cf_traj_dicts_list = [{}] + [self._create_traj_dicts(cf_traj) for cf_traj in cf_traj_list]
-
-            all_future_trajectories[scene_idx] = {}
-            all_future_trajectories[scene_idx][7] = {
-                "factual": f_traj_dicts,
-                "counterfactuals": cf_traj_dicts_list,
-                "causal_effects": scene["remove_agent_i_ade"],
-            }
-
-        timestamp_str = datetime.now().strftime('%Y.%m.%d_%H.%M.%S')
-        output_pickle_path = os.path.join(self.model_dirname, f"all_future_trajectories__{timestamp_str}.pkl")
-        with open(output_pickle_path, "wb") as f:
-            pickle.dump(all_future_trajectories, f)
-
-    def _create_traj_dicts(self, raw_trajectories, max_number_of_agents=12):
-        from datasets.synth.create_data_npys import drop_distant
-        from datasets.synth.create_data_npys import center_scene
-        from datasets.synth.create_data_npys import shift
-        from datasets.synth.create_data_npys import theta_rotation
-
-        # Preprocess trajectories (center, rotate)
-        assert len(raw_trajectories) == 20
-        trajectories = drop_distant(raw_trajectories, max_num_peds=max_number_of_agents)
-        trajectories, rotation, center = center_scene(trajectories)
-        if trajectories.shape[1] < max_number_of_agents:
-            tmp_trajectories = np.zeros((20, max_number_of_agents, 2))
-            tmp_trajectories[:, :, :] = np.nan
-            tmp_trajectories[:, :trajectories.shape[1], :] = trajectories
-            trajectories = tmp_trajectories.copy()
-
-        # Prepare the trajectories for the forward pass
-        dataset: SynthV1Dataset = self.val_loader.dataset
-        data = dataset.unpack_datapoint(trajectories)
-        data = torch.utils.data.dataloader.default_collate([data])
-
-        # Forward pass
-        with torch.no_grad():
-            ego_in, ego_out, agents_in, agents_out, context_img, agent_types = self._data_to_device(data, "Joint")
-            roads = context_img
-            if "Ego" in self.model_config.model_type:
-                pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
-            elif "Joint" in self.model_config.model_type:
-                pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, context_img, agent_types)
-                pred_obs = pred_obs[:, :, :, 0, :]
+            if self.args.evaluate_causal:
+                print("minADE_{}:".format(self.model_config.num_modes), val_minade_c[0],
+                      "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
+                      "minFDE_{}:".format(self.model_config.num_modes), val_minfde_c[0], "minFDE_1:", val_minfde_1[0],
+                      "Consistency:", round(np.array(val_consistency).mean(), 2), "HNC:", val_HNC, "ARS:", round(val_ARS, 2))
             else:
-                raise ValueError
-
-        assert pred_obs.shape[0] == 1
-        assert pred_obs.shape[2] == 1
-        pred_future = pred_obs[0, :, 0, :2].cpu().numpy()
-        gt_past = raw_trajectories[:dataset.in_seq_len, 0]
-        gt_future = raw_trajectories[dataset.in_seq_len:, 0]
-
-        # Revert the trajectory preprocessing
-        def undo_preprocessing(t):
-            t = t[np.newaxis, ...]
-            t = theta_rotation(t, -rotation)
-            t = shift(t, -center)
-            t = t[0]
-            return t
-
-        pred_future = undo_preprocessing(pred_future)
-
-        # Sanity checks
-        gt_future_2 = undo_preprocessing(ego_out.cpu().numpy()[0, :, :2])
-        gt_past_2 = undo_preprocessing(ego_in.cpu().numpy()[0, :, :2])
-        assert np.allclose(gt_future, gt_future_2, atol=1e-5)
-        assert np.allclose(gt_past, gt_past_2, atol=1e-5)
-
-        # Pack the prediction
-        traj_dicts = {}
-        traj_dicts[0] = {
-            "gt_past": gt_past,
-            "gt_future": gt_future,
-            "pred_future": pred_future,
-        }
-        return traj_dicts
+                print("minADE_{}:".format(self.model_config.num_modes), val_minade_c[0],
+                      "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
+                      "minFDE_{}:".format(self.model_config.num_modes), val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
 
     def evaluate(self):
-        if self.args.synth_v1_cf_evaluation:
-            print(" EGO CF")
-            self.counterfactual_evaluate()
-            return
-
         if "Joint" in self.model_config.model_type:
             print(" EGO")
             self.autobotego_evaluate()
