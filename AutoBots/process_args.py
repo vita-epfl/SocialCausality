@@ -15,7 +15,7 @@ def get_train_args():
     # Section: Dataset
     parser.add_argument("--train_data_size", type=int, default=-1, help="Number of scenes to train on.")
     parser.add_argument("--dataset", type=str, required=True, choices=["Argoverse", "Nuscenes", "trajnet++",
-                                                                       "interaction-dataset", "synth"],
+                                                                       "interaction-dataset", "synth", "s2r"],
                         help="Dataset to train on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Path to dataset files.")
     parser.add_argument("--use-map-image", type=bool, default=False, help="Use map image if applicable.")
@@ -59,13 +59,20 @@ def get_train_args():
     parser.add_argument("--num-epochs", type=int, default=150, metavar="I",
                         help="number of iterations through the dataset.")
     parser.add_argument("--save-every", type=int, default=10, help="Frequency of saving model.")
-    parser.add_argument("--val-every", type=int, default=1, help="Frequency of validating model.")
+    parser.add_argument("--val-every", type=int, default=10, help="Frequency of validating model.")
 
     # Section: Evaluating
     parser.add_argument("--evaluate_causal", action="store_true", help="Evaluates causality understanding metrics.")
 
     # Low-data regimes
-    parser.add_argument("--low_data", type=float, default=1.0, help="proportion of training data")
+    parser.add_argument("--low_data", type=float, default=0.05, help="proportion of training data")
+    parser.add_argument("--save_step_start", type=float, default=10000, help="the step starting to save model")
+    parser.add_argument("--save_step_end", type=float, default=15000, help="the step ending to save model")
+    parser.add_argument("--save_every_ckp", type=int, default=10, help="Frequency of saving model in specific range.")
+    
+    # Sim2Real
+    parser.add_argument("--dataset-path-real", type=str, help="Path to real-world dataset files.")
+    parser.add_argument("--dataset-path-synth", type=str, help="Path to synth dataset files.")
 
     args = parser.parse_args()
 
@@ -104,6 +111,11 @@ def get_eval_args():
     parser.add_argument("--synth-v1-cf-evaluation-raw-synthv1-path", type=str,
                         default="data/synth_v1.a.filtered.test.pkl",
                         help="The relative path to the raw synth v1 dataset to run counterfactual evaluation on.")
+    # for the last k ckps
+    parser.add_argument("--save_step_start", type=int, default=14000, help="the step starting to save model")
+    parser.add_argument("--save_step_end", type=int, default=16000, help="the step ending to save mode")
+    parser.add_argument("--eval_interval", type=int, default=10, help="the interval of ckps")
+    parser.add_argument("--output_tag", type=str, required=True, help="tag for output.")
     args = parser.parse_args()
 
     config, model_dirname = load_config(args.models_path)

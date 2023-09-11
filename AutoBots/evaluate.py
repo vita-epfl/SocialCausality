@@ -49,7 +49,7 @@ class Evaluator:
             self.interact_eval = True
 
         elif "trajnet++" in self.model_config.dataset:
-            val_dset = TrajNetPPDataset(dset_path=self.model_config.dataset_path, split_name="val")
+            val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="test")
 
         elif "Argoverse" in self.model_config.dataset:
             val_dset = ArgoH5Dataset(dset_path=self.args.dataset_path, split_name="val",
@@ -262,8 +262,9 @@ class Evaluator:
                     print(i, "/", len(self.val_loader.dataset) // self.args.batch_size)
 
                 if self.model_config.dataset == "synth" or "trajnet++" in self.model_config.dataset:
-                    ego_in, ego_out, agents_in, _, context_img, agent_types = self._data_to_device(data, "Joint")
-                    roads = context_img
+                    # ego_in, ego_out, agents_in, _, context_img, agent_types = self._data_to_device(data, "Joint")
+                    # roads = context_img
+                    ego_in, ego_out, agents_in, roads = self._data_to_device(data)
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 

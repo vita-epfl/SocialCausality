@@ -75,14 +75,28 @@ class Trainer:
         elif self.args.dataset == "synth":
             train_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="train", size=self.args.train_data_size) # TODO Check if this is correct
             val_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="val")
+        elif self.args.dataset == 's2r':
+            # real and sim datasets
+            train_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="train", proportion=self.args.low_data)
+            val_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="val")
+            train_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="train", size=self.args.train_data_size) 
+            val_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="val")
         else:
             raise NotImplementedError
 
-        self.num_other_agents = train_dset.num_others
-        self.pred_horizon = train_dset.pred_horizon
-        self.k_attr = train_dset.k_attr
-        self.map_attr = train_dset.map_attr
-        self.predict_yaw = train_dset.predict_yaw
+        if self.args.dataset == 's2r':
+            self.num_other_agents = train_dset_real.num_others
+            self.pred_horizon = train_dset_real.pred_horizon
+            self.k_attr = train_dset_real.k_attr
+            self.map_attr = train_dset_real.map_attr
+            self.predict_yaw = train_dset_real.predict_yaw
+        else:
+            self.num_other_agents = train_dset.num_others
+            self.pred_horizon = train_dset.pred_horizon
+            self.k_attr = train_dset.k_attr
+            self.map_attr = train_dset.map_attr
+            self.predict_yaw = train_dset.predict_yaw
+
         if "Joint" in self.args.model_type:
             self.num_agent_types = train_dset.num_agent_types
 
@@ -93,6 +107,27 @@ class Trainer:
             self.val_loader = torch.utils.data.DataLoader(
                 val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
             )
+        elif self.args.dataset == "s2r": 
+            # 4 dataloaders
+            # Real
+            self.train_loader_real = torch.utils.data.DataLoader(
+                train_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False, collate_fn=my_collate_fn
+            )
+            self.val_loader_real = torch.utils.data.DataLoader(
+                val_dset_real, batch_size=args.batch_size, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False, collate_fn=my_collate_fn
+            )
+            # Sim
+            self.train_loader_sim = torch.utils.data.DataLoader(
+                train_dset_sim, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            self.val_loader_sim = torch.utils.data.DataLoader(
+                val_dset_sim, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            # zip dataloader
+            self.train_loader = zip(self.train_loader_real, self.train_loader_sim)
+            self.val_loader = zip(self.val_loader_real, self.val_loader_sim)
         else:
             self.train_loader = torch.utils.data.DataLoader(
                 train_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
@@ -213,16 +248,32 @@ class Trainer:
                 if self.args.dataset == "synth":
                     scenes, causal_effects, data_splits = data
                     if self.args.reg_type == "None":
-                        # breakpoint()
                         scenes = [data[data_splits[:-1]] for data in scenes]
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                elif self.args.dataset == "s2r": # sim2real
+                    data_real, data_sim = data
+                    # sim 
+                    scenes, causal_effects, data_splits = data_sim
+                    if self.args.reg_type == "None":
+                        scenes = [data[data_splits[:-1]] for data in scenes]
+                    ego_in_sim, ego_out_sim, agents_in_sim, _, context_img, _ = self._data_to_device(scenes, "Joint")
+                    roads_sim = context_img
+                    # real
+                    ego_in_real, ego_out_real, agents_in_real, roads_real = self._data_to_device(data_real)
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, embeds = self.autobot_model(ego_in, agents_in, roads)
+                elif self.args.dataset == "synth":
+                    # Forward 2 times
+                    # Real
+                    pred_obs_real, mode_probs_real, embeds_real = self.autobot_model(ego_in_real, agents_in_real, roads_real)
+                    # Sim
+                    pred_obs_sim, mode_probs_sim, embeds_sim = self.autobot_model(ego_in_sim, agents_in_sim, roads_sim)
+                    
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
 
@@ -233,6 +284,12 @@ class Trainer:
                         entropy_weight=self.args.entropy_weight,
                         kl_weight=self.args.kl_weight,
                         use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
+                elif self.args.dataset == "s2r":
+                    # Real
+                    nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(pred_obs_real, ego_out_real[:, :, :2], mode_probs_real,
+                                                                                       entropy_weight=self.args.entropy_weight,
+                                                                                       kl_weight=self.args.kl_weight,
+                                                                                       use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
                 else:
                     nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(pred_obs, ego_out[:, :, :2], mode_probs,
                                                                                        entropy_weight=self.args.entropy_weight,
@@ -265,11 +322,16 @@ class Trainer:
                     #     torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
                     # print("traj grad norm: {} - contrastive grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm / contrastive_grad_norm))
                     # print("other loss: {} - contrastive loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), contrastive_loss.item(), (nll_loss + adefde_loss + kl_loss).item() / contrastive_loss.item()))
+                elif self.args.dataset == "s2r":
+                    # Sim
+                    contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
 
                 self.optimiser.zero_grad()
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                     (nll_loss + adefde_loss + kl_loss + consistency_loss).backward()
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                    (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
+                elif self.args.dataset == "s2r":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
                 else:
                     (nll_loss + adefde_loss + kl_loss).backward()
@@ -284,12 +346,46 @@ class Trainer:
                     self.writer.add_scalar("Loss/consistency", consistency_loss.item(), steps)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
-
+                elif self.args.dataset == "s2r":
+                    self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
+           
+                
                 with torch.no_grad():
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                     epoch_ade_losses.append(ade_losses)
                     epoch_fde_losses.append(fde_losses)
                     epoch_mode_probs.append(mode_probs.detach().cpu().numpy())
+
+
+                # if steps % 10 == 0:
+                #     #get train ADE for each step here
+                #     ade_losses_step = epoch_ade_losses[-1]
+                #     fde_losses_step = epoch_fde_losses[-1]
+                #     mode_probs_step = epoch_mode_probs[-1]
+
+                #     train_minade_c_step = min_xde_K(ade_losses_step, mode_probs_step, K=self.args.num_modes)
+                #     train_minade_10_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
+                #     train_minade_5_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 5))
+                #     train_minade_1_step = min_xde_K(ade_losses_step, mode_probs_step, K=1)
+                #     train_minfde_c_step = min_xde_K(fde_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
+                #     train_minfde_1_step = min_xde_K(fde_losses_step, mode_probs_step, K=1)
+                #     print("Train minADE c:", train_minade_c_step[0], "Train minADE 1:", train_minade_1_step[0], "Train minFDE c:", train_minfde_c_step[0])
+
+                #     # Log train metrics
+                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(self.args.num_modes), train_minade_c_step[0], steps)
+                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(10), train_minade_10_step[0], steps)
+                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(5), train_minade_5_step[0], steps)
+                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(1), train_minade_1_step[0], steps)
+                #     self.writer.add_scalar("metrics step/Train minFDE_{}".format(self.args.num_modes), train_minfde_c_step[0], steps)
+                #     self.writer.add_scalar("metrics step/Train minFDE_{}".format(1), train_minfde_1_step[0], steps)
+
+                #     # get val ADE for each step here
+                #     self.autobotego_evaluate_step(steps)
+
+                if steps >= args.save_step_start and steps < args.save_step_end:
+                    if steps % self.args.save_every_ckp == 0:
+                        # save ckps every step
+                        self.save_model_step(steps)
 
                 if i % 10 == 0:
                     if self.args.dataset == "synth" and self.args.reg_type == "consistency":
@@ -338,6 +434,9 @@ class Trainer:
                 self.autobotego_evaluate(epoch)
             self.save_model(epoch)
             print("Best minADE c", self.smallest_minade_k, "Best minFDE c", self.smallest_minfde_k)
+
+            if steps > args.save_step_end:
+                break
 
     def autobotego_evaluate(self, epoch):
         self.autobot_model.eval()
@@ -419,6 +518,86 @@ class Trainer:
             self.autobot_model.train()
             self.save_model(minade_k=val_minade_c[0], minfde_k=val_minfde_c[0])
 
+    def autobotego_evaluate_step(self, step):
+        self.autobot_model.eval()
+        with torch.no_grad():
+            val_ade_losses = []
+            val_fde_losses = []
+            val_mode_probs = []
+            if self.args.evaluate_causal:
+                val_consistency = []
+                val_HNC, val_ARS = 0, []
+
+            for i, data in enumerate(self.val_loader):
+                if self.args.dataset == "synth":
+                    scenes, causal_effects, data_splits = data
+                    if not self.args.evaluate_causal:
+                        scenes = [data[data_splits[:-1]] for data in scenes]
+                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
+                    roads = context_img
+                    causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                elif  "trajnet++" in self.args.dataset:
+                    ego_in, ego_out, agents_in, roads = self._data_to_device(data)
+                else:
+                    ego_in, ego_out, agents_in, roads = self._data_to_device(data)
+
+                # encode observations
+                if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                    pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
+                else:
+                    pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
+                # pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
+
+                if self.args.evaluate_causal:
+                    ade_losses, fde_losses = self._compute_ego_errors(pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2])
+                    consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, self.args.consistency_weight)
+                    batch_HNC, batch_ARS = HNC_ARS(pred_obs, causal_effects, data_splits)
+                else:
+                    ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
+                val_ade_losses.append(ade_losses)
+                val_fde_losses.append(fde_losses)
+                if self.args.evaluate_causal:
+                    val_mode_probs.append(mode_probs[data_splits[:-1]].detach().cpu().numpy())
+                    val_consistency.append(consistency_loss.item())
+                    val_HNC += batch_HNC
+                    val_ARS += batch_ARS
+                else:
+                    val_mode_probs.append(mode_probs.detach().cpu().numpy())
+
+            val_ade_losses = np.concatenate(val_ade_losses)
+            val_fde_losses = np.concatenate(val_fde_losses)
+            val_mode_probs = np.concatenate(val_mode_probs)
+            if self.args.evaluate_causal:
+                val_ARS = np.concatenate(val_ARS).mean()
+
+            val_minade_c = min_xde_K(val_ade_losses, val_mode_probs, K=self.args.num_modes)
+            val_minade_10 = min_xde_K(val_ade_losses, val_mode_probs, K=min(self.args.num_modes, 10))
+            val_minade_5 = min_xde_K(val_ade_losses, val_mode_probs, K=5)
+            val_minade_1 = min_xde_K(val_ade_losses, val_mode_probs, K=1)
+            val_minfde_c = min_xde_K(val_fde_losses, val_mode_probs, K=self.args.num_modes)
+            val_minfde_1 = min_xde_K(val_fde_losses, val_mode_probs, K=1)
+
+            # Log val metrics
+            self.writer.add_scalar("metrics step/Val minADE_{}".format(self.args.num_modes), val_minade_c[0], step)
+            self.writer.add_scalar("metrics step/Val minADE_{}".format(10), val_minade_10[0], step)
+            self.writer.add_scalar("metrics step/Val minADE_{}".format(5), val_minade_5[0], step)
+            self.writer.add_scalar("metrics step/Val minADE_{}".format(1), val_minade_1[0], step)
+            self.writer.add_scalar("metrics step/Val minFDE_{}".format(self.args.num_modes), val_minfde_c[0], step)
+            self.writer.add_scalar("metrics step/Val minFDE_{}".format(1), val_minfde_1[0], step)
+            if self.args.evaluate_causal:
+                self.writer.add_scalar("metrics/Val consistency", np.array(val_consistency).mean(), step)
+                self.writer.add_scalar("metrics/Val HNC", val_HNC, step)
+                self.writer.add_scalar("metrics/Val ARS", val_ARS, step)
+
+                print("minADE c:", val_minade_c[0], "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
+                      "minFDE c:", val_minfde_c[0], "minFDE_1:", val_minfde_1[0], "Consistency:",
+                      round(np.array(val_consistency).mean(), 2), "HNC:", val_HNC, "ARS:", round(val_ARS, 2))
+            else:
+                print("minADE c:", val_minade_c[0], "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
+                      "minFDE c:", val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
+            self.autobot_model.train()
+            self.save_model(minade_k=val_minade_c[0], minfde_k=val_minfde_c[0])
+            
     def autobotjoint_train(self):
         steps = 0
         for epoch in range(0, self.args.num_epochs):
@@ -564,6 +743,46 @@ class Trainer:
         self.optimiser.state_dict()['state'] = new_state_dict
 
         # self.optimiser.load_state_dict(weights["optimiser"])
+
+    def save_init_model(self):
+        torch.save(
+            {
+                "AutoBot": self.autobot_model.state_dict(),
+                "optimiser": self.optimiser.state_dict(),
+            },
+            os.path.join(self.results_dirname, "models_%d.pth" % -1),
+        )
+
+    def save_model_step(self, step=None, minade_k=None, minfde_k=None):
+        if step is None:
+            if minade_k < self.smallest_minade_k:
+                self.smallest_minade_k = minade_k
+                torch.save(
+                    {
+                        "AutoBot": self.autobot_model.state_dict(),
+                        "optimiser": self.optimiser.state_dict(),
+                    },
+                    os.path.join(self.results_dirname, "best_models_ade.pth"),
+                )
+
+            if minfde_k < self.smallest_minfde_k:
+                self.smallest_minfde_k = minfde_k
+                torch.save(
+                    {
+                        "AutoBot": self.autobot_model.state_dict(),
+                        "optimiser": self.optimiser.state_dict(),
+                    },
+                    os.path.join(self.results_dirname, "best_models_fde.pth"),
+                )
+
+        else:
+            torch.save(
+                {
+                    "AutoBot": self.autobot_model.state_dict(),
+                    "optimiser": self.optimiser.state_dict(),
+                },
+                os.path.join(self.results_dirname, "models_step_%d.pth" % step),
+            )
 
     def save_model(self, epoch=None, minade_k=None, minfde_k=None):
         if epoch is None:

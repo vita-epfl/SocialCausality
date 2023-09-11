@@ -84,7 +84,7 @@ def prepare_data(raw_path, out_path):
         largest_num_agents = 0.0
         for scene_i, (filename, scene_id, s_tag, curr_scene) in enumerate(scene):
             curr_scene = drop_distant(curr_scene, max_num_peds=N)
-            # curr_scene, _, _ = center_scene(curr_scene)
+            curr_scene, _, _ = center_scene(curr_scene)
 
             if curr_scene.shape[1] > largest_num_agents:
                 largest_num_agents = curr_scene.shape[1]
@@ -98,7 +98,7 @@ def prepare_data(raw_path, out_path):
 
             train_file_data[scene_i] = curr_scene
 
-        np.save(os.path.join(out_path, "test_"+file+".npy"), train_file_data)
+        np.save(os.path.join(out_path, "val_"+file+".npy"), train_file_data)
         #del val_file_data
         del train_file_data
         del scene
