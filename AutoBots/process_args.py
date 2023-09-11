@@ -70,7 +70,7 @@ def get_train_args():
 
     # Perform config checks
     if "trajnet" in args.dataset:
-        assert "Joint" in args.model_type, "Can't run AutoBot-Ego on TrajNet..."
+        # assert "Joint" in args.model_type, "Can't run AutoBot-Ego on TrajNet..."
         assert not args.use_map_image and not args.use_map_lanes, "TrajNet++ has no scene map information..."
     elif "Argoverse" in args.dataset:
         assert "Ego" in args.model_type, "Can't run AutoBot-Joint on Argoverse..."

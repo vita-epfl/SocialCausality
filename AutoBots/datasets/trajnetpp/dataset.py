@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 class TrajNetPPDataset(Dataset):
     def __init__(self, dset_path, split_name="train"):
-        self.num_others = 17
+        self.num_others = 5
         self.pred_horizon = 12
         self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
         self.in_seq_len = 8
@@ -41,6 +41,8 @@ class TrajNetPPDataset(Dataset):
         roads = np.ones((1, 1))  # for dataloading to work with other datasets that have images.
 
         return ego_in, ego_out, agents_in[:, 1:], agents_out[:, 1:], roads, agent_types
+        # return ego_in, ego_out, agents_in[:, 1:], roads
+
 
     def __len__(self):
         return len(self.agents_dataset)

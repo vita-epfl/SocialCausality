@@ -37,11 +37,20 @@ class Trainer:
         self.initialize_model()
         self.optimiser = optim.Adam(self.autobot_model.parameters(), lr=self.args.learning_rate,
                                     eps=self.args.adam_epsilon)
+
         if self.args.weight_path != "":
                 self.load_optimiser()
 
         self.optimiser_scheduler = MultiStepLR(self.optimiser, milestones=args.learning_rate_sched, gamma=0.5,
                                                verbose=True, last_epoch=self.args.start_epoch if self.args.weight_path != "" else -1)
+        if self.args.reg_type == "consistency":
+            encoder_params = list(self.autobot_model.social_attn_layers.parameters()) + \
+                             list(self.autobot_model.temporal_attn_layers.parameters()) #+ \
+                             # list(self.autobot_model.agents_dynamic_encoder.parameters())
+            self.consistency_optimiser = optim.Adam(encoder_params, lr=self.optimiser.param_groups[0]["lr"],
+                                                    eps=self.args.adam_epsilon)
+            self.consistency_scheduler = MultiStepLR(self.consistency_optimiser, milestones=args.learning_rate_sched, gamma=0.5,
+                                                     verbose=True)
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.results_dirname, "tb_files"))
 
@@ -65,7 +74,7 @@ class Trainer:
 
         elif "trajnet++" in self.args.dataset:
             train_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="train")
-            val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="val")
+            val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="test")
 
         elif "Argoverse" in self.args.dataset:
             train_dset = ArgoH5Dataset(dset_path=self.args.dataset_path, split_name="train",
@@ -218,6 +227,9 @@ class Trainer:
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                elif "trajnet++" in self.args.dataset:
+                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(data, "Joint")
+                    roads = context_img
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
@@ -243,7 +255,11 @@ class Trainer:
                     consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, self.args.consistency_weight)
 
                     # traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
-                    # contrastive_grads = torch.autograd.grad(consistency_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
+                    #
+                    # encoder_params = list(self.autobot_model.agents_dynamic_encoder.parameters()) + \
+                    #                  list(self.autobot_model.temporal_attn_layers.parameters()) + \
+                    #                  list(self.autobot_model.social_attn_layers.parameters())
+                    # contrastive_grads = torch.autograd.grad(consistency_loss, [p for p in encoder_params if p.requires_grad], retain_graph=True, allow_unused=True)
                     #
                     # traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
                     # contrastive_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
@@ -268,7 +284,7 @@ class Trainer:
 
                 self.optimiser.zero_grad()
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
-                    (nll_loss + adefde_loss + kl_loss + consistency_loss).backward()
+                    (nll_loss + adefde_loss + kl_loss).backward(retain_graph=True)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
                 else:
@@ -276,6 +292,12 @@ class Trainer:
 
                 nn.utils.clip_grad_norm_(self.autobot_model.parameters(), self.args.grad_clip_norm)
                 self.optimiser.step()
+
+                if self.args.dataset == "synth" and self.args.reg_type == "consistency":
+                    self.consistency_optimiser.zero_grad()
+                    consistency_loss.backward()
+                    nn.utils.clip_grad_norm_(self.autobot_model.parameters(), self.args.grad_clip_norm)
+                    self.consistency_optimiser.step()
 
                 self.writer.add_scalar("Loss/nll", nll_loss.item(), steps)
                 self.writer.add_scalar("Loss/adefde", adefde_loss.item(), steps)
@@ -333,6 +355,8 @@ class Trainer:
 
             # update learning rate
             self.optimiser_scheduler.step()
+            if self.args.dataset == "synth" and self.args.reg_type == "consistency":
+                self.consistency_scheduler.step()
 
             if epoch % self.args.val_every == 0:
                 self.autobotego_evaluate(epoch)
