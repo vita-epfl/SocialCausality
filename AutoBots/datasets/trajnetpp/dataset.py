@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 class TrajNetPPDataset(Dataset):
     def __init__(self, dset_path, split_name="train", proportion=1.0):
-        self.num_others = 5
+        self.num_others = 17
         self.pred_horizon = 12
         self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
         self.in_seq_len = 8
@@ -30,7 +30,12 @@ class TrajNetPPDataset(Dataset):
 
     def __getitem__(self, idx: int):
         data = self.agents_dataset[idx]
-
+        if data.shape[1] < self.num_others + 1:
+                # Need to pad array to have shape 21xNx2
+                temp_curr_scene = np.zeros((20, self.num_others+1, 2))
+                temp_curr_scene[:, :, :] = np.nan
+                temp_curr_scene[:, :data.shape[1], :] = data
+                data = temp_curr_scene.copy()
         # Remove nan values and add mask column to state
         data_mask = np.ones((data.shape[0], data.shape[1], 3))
         data_mask[:, :, :2] = data

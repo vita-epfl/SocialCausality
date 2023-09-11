@@ -66,7 +66,7 @@ class SynthV1CausalDataset(Dataset):
         #       preprocessing parameter `--max-number-of-agents` must be
         #       tweaked if a different dataset is used, e.g., one of the
         #       out-of-distribution datasets related to Synth-v1.
-        self.num_others = 11
+        self.num_others = 17
 
         self.pred_horizon = 12
         self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
@@ -105,7 +105,7 @@ class SynthV1CausalDataset(Dataset):
 
         return ego_in, ego_out, agents_in[:, 1:], agents_out[:, 1:], roads, agent_types
 
-    def _do_preprocess(self, raw_trajectories, max_number_of_agents=12):
+    def _do_preprocess(self, raw_trajectories, max_number_of_agents=18):
         # Preprocess trajectories (center, rotate)
         assert len(raw_trajectories) == 20
         trajectories = drop_distant(raw_trajectories, max_num_peds=max_number_of_agents)

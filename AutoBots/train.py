@@ -100,35 +100,7 @@ class Trainer:
         if "Joint" in self.args.model_type:
             self.num_agent_types = train_dset.num_agent_types
 
-        if self.args.dataset != "synth":
-            self.train_loader = torch.utils.data.DataLoader(
-                train_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-            )
-            self.val_loader = torch.utils.data.DataLoader(
-                val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-            )
-        elif self.args.dataset == "s2r": 
-            # 4 dataloaders
-            # Real
-            self.train_loader_real = torch.utils.data.DataLoader(
-                train_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
-                pin_memory=False, collate_fn=my_collate_fn
-            )
-            self.val_loader_real = torch.utils.data.DataLoader(
-                val_dset_real, batch_size=args.batch_size, shuffle=True, num_workers=12, drop_last=False,
-                pin_memory=False, collate_fn=my_collate_fn
-            )
-            # Sim
-            self.train_loader_sim = torch.utils.data.DataLoader(
-                train_dset_sim, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-            )
-            self.val_loader_sim = torch.utils.data.DataLoader(
-                val_dset_sim, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-            )
-            # zip dataloader
-            self.train_loader = zip(self.train_loader_real, self.train_loader_sim)
-            self.val_loader = zip(self.val_loader_real, self.val_loader_sim)
-        else:
+        if self.args.dataset == "synth":
             self.train_loader = torch.utils.data.DataLoader(
                 train_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
@@ -137,8 +109,64 @@ class Trainer:
                 val_dset, batch_size=512, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
             )
-        print("Train dataset loaded with length", len(train_dset))
-        print("Val dataset loaded with length", len(val_dset))
+        elif self.args.dataset == "s2r": 
+            # 4 dataloaders
+            # Real
+            self.train_loader_real = torch.utils.data.DataLoader(
+                train_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            self.val_loader = torch.utils.data.DataLoader(
+                val_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            # Sim
+            self.train_loader_sim = torch.utils.data.DataLoader(
+                train_dset_sim, batch_size=64, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False, collate_fn=my_collate_fn
+            )
+            self.val_loader_sim = torch.utils.data.DataLoader(
+                val_dset_sim, batch_size=512, shuffle=True, num_workers=12, drop_last=False,
+                pin_memory=False, collate_fn=my_collate_fn
+            )
+            # zip dataloader
+            # self.train_loader = zip(self.train_loader_real, self.train_loader_sim)
+            # self.val_loader = zip(self.val_loader_real, self.val_loader_sim)
+        else:
+            self.train_loader = torch.utils.data.DataLoader(
+                train_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            self.val_loader = torch.utils.data.DataLoader(
+                val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+            )
+            
+        print("Train dataset loaded with length", len(train_dset_real))
+        print("Val dataset loaded with length", len(val_dset_real))
+
+    def reset_dataloader_s2r(self):
+        train_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="train", proportion=self.args.low_data)
+        val_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="val")
+        train_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="train", size=self.args.train_data_size) 
+        val_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="val")
+        # 4 dataloaders
+        # Real
+        self.train_loader_real = torch.utils.data.DataLoader(
+            train_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+        )
+        self.val_loader = torch.utils.data.DataLoader(
+            val_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
+        )
+        # Sim
+        self.train_loader_sim = torch.utils.data.DataLoader(
+            train_dset_sim, batch_size=16, shuffle=True, num_workers=12, drop_last=False,
+            pin_memory=False, collate_fn=my_collate_fn
+        )
+        self.val_loader_sim = torch.utils.data.DataLoader(
+            val_dset_sim, batch_size=512, shuffle=True, num_workers=12, drop_last=False,
+            pin_memory=False, collate_fn=my_collate_fn
+        )
+        # zip dataloader
+        self.train_loader = zip(self.train_loader_real, self.train_loader_sim)
+        # self.val_loader = zip(self.val_loader_real, self.val_loader_sim)
+
 
     def initialize_model(self):
         if "Ego" in self.args.model_type:
@@ -155,7 +183,7 @@ class Trainer:
                                             use_map_img=self.args.use_map_image,
                                             use_map_lanes=self.args.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=(self.args.reg_type == "contrastive" and self.args.dataset == "synth")).to(self.device)
+                                            return_embeddings=((self.args.reg_type == "contrastive" and self.args.dataset == "synth") or self.args.dataset == "s2r")).to(self.device)
 
         elif "Joint" in self.args.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -244,6 +272,15 @@ class Trainer:
             epoch_ade_losses = []
             epoch_fde_losses = []
             epoch_mode_probs = []
+
+            if self.args.dataset == "s2r": 
+                # iter
+                self.iter_train_loader_real = iter(self.train_loader_real)
+                self.iter_train_loader_sim = iter(self.train_loader_sim)
+                # zip 
+                self.train_loader = zip(self.iter_train_loader_real, self.iter_train_loader_sim)
+
+
             for i, data in enumerate(self.train_loader):
                 if self.args.dataset == "synth":
                     scenes, causal_effects, data_splits = data
@@ -256,10 +293,9 @@ class Trainer:
                     data_real, data_sim = data
                     # sim 
                     scenes, causal_effects, data_splits = data_sim
-                    if self.args.reg_type == "None":
-                        scenes = [data[data_splits[:-1]] for data in scenes]
                     ego_in_sim, ego_out_sim, agents_in_sim, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads_sim = context_img
+                    causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                     # real
                     ego_in_real, ego_out_real, agents_in_real, roads_real = self._data_to_device(data_real)
                 else:
@@ -267,7 +303,7 @@ class Trainer:
 
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, embeds = self.autobot_model(ego_in, agents_in, roads)
-                elif self.args.dataset == "synth":
+                elif self.args.dataset == "s2r":
                     # Forward 2 times
                     # Real
                     pred_obs_real, mode_probs_real, embeds_real = self.autobot_model(ego_in_real, agents_in_real, roads_real)
@@ -351,10 +387,16 @@ class Trainer:
            
                 
                 with torch.no_grad():
-                    ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
+                    if self.args.dataset == "s2r":
+                        ade_losses, fde_losses = self._compute_ego_errors(pred_obs_real, ego_out_real)
+                    else:
+                        ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                     epoch_ade_losses.append(ade_losses)
                     epoch_fde_losses.append(fde_losses)
-                    epoch_mode_probs.append(mode_probs.detach().cpu().numpy())
+                    if self.args.dataset == "s2r":
+                        epoch_mode_probs.append(mode_probs_real.detach().cpu().numpy())
+                    else:
+                        epoch_mode_probs.append(mode_probs.detach().cpu().numpy())
 
 
                 # if steps % 10 == 0:
@@ -400,6 +442,12 @@ class Trainer:
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
+                    elif self.args.dataset == "s2r":
+                        print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
+                              "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
+                              "Prior Entropy", round(torch.mean(D.Categorical(mode_probs_real).entropy()).item(), 2),
+                              "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
+                              "Contrastive loss", round(contrastive_loss.item(), 2))
                     else:
                         print(i, "/", len(self.train_loader.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
@@ -407,6 +455,7 @@ class Trainer:
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2))
                 steps += 1
 
+            print(len(epoch_ade_losses))
             ade_losses = np.concatenate(epoch_ade_losses)
             fde_losses = np.concatenate(epoch_fde_losses)
             mode_probs = np.concatenate(epoch_mode_probs)
@@ -463,6 +512,8 @@ class Trainer:
 
                 # encode observations
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                    pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
+                elif self.args.dataset == "s2r":
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
@@ -543,6 +594,8 @@ class Trainer:
 
                 # encode observations
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                    pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
+                elif self.args.dataset == "s2r":
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
