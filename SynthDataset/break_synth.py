@@ -5,10 +5,10 @@ from tqdm import tqdm
 
 
 if __name__ == '__main__':
-
+    
     data_path = '/work/vita/datasets/causal_synthetic_data/synth_v1.a.filtered.{}.pkl'
     # data_path = '/work/vita/datasets/causal_synthetic_data/synth_v1.a.{}.val.300.pkl'
-    save_path = '/scratch/izar/arahimi/synth_v1_breaked/{}'
+    save_path = '/scratch/izar/luan/synth_v1_breaked/{}'
     for split in ["train", "val"]:
     # for dataset_name in ["filtered"]:
         os.makedirs(save_path.format(split), exist_ok=True)

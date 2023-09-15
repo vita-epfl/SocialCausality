@@ -66,7 +66,8 @@ class Evaluator:
             assert len(self.args.synth_v1_subset_filename) > 0
             val_dset = SynthV1Dataset(dset_path=self.model_config.dataset_path,
                                       filename=self.args.synth_v1_subset_filename)
-
+        elif "s2r" in self.model_config.dataset:
+            val_dset = TrajNetPPDataset(dset_path=self.args.dataset_path, split_name="test")
         else:
             raise NotImplementedError
 
@@ -99,7 +100,9 @@ class Evaluator:
                                             tx_hidden_size=self.model_config.tx_hidden_size,
                                             use_map_img=self.model_config.use_map_image,
                                             use_map_lanes=self.model_config.use_map_lanes,
-                                            map_attr=self.map_attr).to(self.device)
+                                            map_attr=self.map_attr, return_embeddings=True).to(self.device)
+
+
 
         elif "Joint" in self.model_config.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -284,7 +287,7 @@ class Evaluator:
                         ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                     if "Ego" in self.model_config.model_type:
-                        pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
+                        pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                     elif "Joint" in self.model_config.model_type:
                         pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, context_img, agent_types)
                         pred_obs = pred_obs[:, :, :, 0, :]
@@ -324,8 +327,8 @@ class Evaluator:
         print('FDE mean:', FDE_mean, 'FDE std:', FDE_std)
 
         # save array
-        np.save('./ckps_eval/'+args.output_tag+'_ADE.npy', ADE_ls)
-        np.save('./ckps_eval/'+args.output_tag+'_FDE.npy', FDE_ls)
+        np.save(args.output_path + args.output_tag+'_ADE.npy', ADE_ls)
+        np.save(args.output_path + args.output_tag+'_FDE.npy', FDE_ls)
 
 
     def counterfactual_evaluate(self):

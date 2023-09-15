@@ -75,7 +75,7 @@ class Trainer:
         elif self.args.dataset == "synth":
             train_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="train", size=self.args.train_data_size) # TODO Check if this is correct
             val_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="val")
-        elif self.args.dataset == 's2r':
+        elif self.args.dataset == 's2r' or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
             # real and sim datasets
             train_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="train", proportion=self.args.low_data)
             val_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="val")
@@ -84,7 +84,7 @@ class Trainer:
         else:
             raise NotImplementedError
 
-        if self.args.dataset == 's2r':
+        if self.args.dataset == 's2r' or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
             self.num_other_agents = train_dset_real.num_others
             self.pred_horizon = train_dset_real.pred_horizon
             self.k_attr = train_dset_real.k_attr
@@ -109,7 +109,7 @@ class Trainer:
                 val_dset, batch_size=512, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
             )
-        elif self.args.dataset == "s2r": 
+        elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl': 
             # 4 dataloaders
             # Real
             self.train_loader_real = torch.utils.data.DataLoader(
@@ -120,7 +120,7 @@ class Trainer:
             )
             # Sim
             self.train_loader_sim = torch.utils.data.DataLoader(
-                train_dset_sim, batch_size=64, shuffle=True, num_workers=12, drop_last=False,
+                train_dset_sim, batch_size=args.batch_size_cl, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
             )
             self.val_loader_sim = torch.utils.data.DataLoader(
@@ -137,35 +137,13 @@ class Trainer:
             self.val_loader = torch.utils.data.DataLoader(
                 val_dset, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
             )
-            
-        print("Train dataset loaded with length", len(train_dset_real))
-        print("Val dataset loaded with length", len(val_dset_real))
-
-    def reset_dataloader_s2r(self):
-        train_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="train", proportion=self.args.low_data)
-        val_dset_real = TrajNetPPDataset(dset_path=self.args.dataset_path_real, split_name="val")
-        train_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="train", size=self.args.train_data_size) 
-        val_dset_sim = SynthV1CausalDataset(dset_path=self.args.dataset_path_synth, split="val")
-        # 4 dataloaders
-        # Real
-        self.train_loader_real = torch.utils.data.DataLoader(
-            train_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-        )
-        self.val_loader = torch.utils.data.DataLoader(
-            val_dset_real, batch_size=self.args.batch_size, shuffle=True, num_workers=12, drop_last=False, pin_memory=False
-        )
-        # Sim
-        self.train_loader_sim = torch.utils.data.DataLoader(
-            train_dset_sim, batch_size=16, shuffle=True, num_workers=12, drop_last=False,
-            pin_memory=False, collate_fn=my_collate_fn
-        )
-        self.val_loader_sim = torch.utils.data.DataLoader(
-            val_dset_sim, batch_size=512, shuffle=True, num_workers=12, drop_last=False,
-            pin_memory=False, collate_fn=my_collate_fn
-        )
-        # zip dataloader
-        self.train_loader = zip(self.train_loader_real, self.train_loader_sim)
-        # self.val_loader = zip(self.val_loader_real, self.val_loader_sim)
+        
+        if self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
+            print("Train dataset loaded with length", len(train_dset_real))
+            print("Val dataset loaded with length", len(val_dset_real)) 
+        else:
+            print("Train dataset loaded with length", len(train_dset))
+            print("Val dataset loaded with length", len(val_dset))
 
 
     def initialize_model(self):
@@ -183,7 +161,7 @@ class Trainer:
                                             use_map_img=self.args.use_map_image,
                                             use_map_lanes=self.args.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=((self.args.reg_type == "contrastive" and self.args.dataset == "synth") or self.args.dataset == "s2r")).to(self.device)
+                                            return_embeddings=((self.args.reg_type == "contrastive" and self.args.dataset == "synth") or self.args.dataset == "s2r" or self.args.dataset == "s2r_baseline" or self.args.dataset == 's2r_pred_cl')).to(self.device)
 
         elif "Joint" in self.args.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -273,7 +251,7 @@ class Trainer:
             epoch_fde_losses = []
             epoch_mode_probs = []
 
-            if self.args.dataset == "s2r": 
+            if self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl': 
                 # iter
                 self.iter_train_loader_real = iter(self.train_loader_real)
                 self.iter_train_loader_sim = iter(self.train_loader_sim)
@@ -289,7 +267,7 @@ class Trainer:
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
-                elif self.args.dataset == "s2r": # sim2real
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline'or self.args.dataset == 's2r_pred_cl': # sim2real
                     data_real, data_sim = data
                     # sim 
                     scenes, causal_effects, data_splits = data_sim
@@ -303,7 +281,7 @@ class Trainer:
 
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, embeds = self.autobot_model(ego_in, agents_in, roads)
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
                     # Forward 2 times
                     # Real
                     pred_obs_real, mode_probs_real, embeds_real = self.autobot_model(ego_in_real, agents_in_real, roads_real)
@@ -323,6 +301,17 @@ class Trainer:
                 elif self.args.dataset == "s2r":
                     # Real
                     nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(pred_obs_real, ego_out_real[:, :, :2], mode_probs_real,
+                                                                                       entropy_weight=self.args.entropy_weight,
+                                                                                       kl_weight=self.args.kl_weight,
+                                                                                       use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
+                elif self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
+                    # Pred real and sim
+                    # Real
+                    nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(pred_obs_real, ego_out_real[:, :, :2], mode_probs_real,
+                                                                                       entropy_weight=self.args.entropy_weight,
+                                                                                       kl_weight=self.args.kl_weight,
+                                                                                       use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
+                    nll_loss_sim, kl_loss_sim, post_entropy_sim, adefde_loss_sim = nll_loss_multimodes(pred_obs_sim, ego_out_sim[:, :, :2], mode_probs_sim,
                                                                                        entropy_weight=self.args.entropy_weight,
                                                                                        kl_weight=self.args.kl_weight,
                                                                                        use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
@@ -358,7 +347,7 @@ class Trainer:
                     #     torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
                     # print("traj grad norm: {} - contrastive grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm / contrastive_grad_norm))
                     # print("other loss: {} - contrastive loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), contrastive_loss.item(), (nll_loss + adefde_loss + kl_loss).item() / contrastive_loss.item()))
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
                     # Sim
                     contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
 
@@ -369,6 +358,10 @@ class Trainer:
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
                 elif self.args.dataset == "s2r":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
+                elif self.args.dataset == 's2r_baseline':
+                    ((nll_loss + adefde_loss + kl_loss) + self.args.sim_pred_weight*(nll_loss_sim + adefde_loss_sim + nll_loss_sim)).backward()
+                elif self.args.dataset == 's2r_pred_cl':
+                    ((nll_loss + adefde_loss + kl_loss) + (nll_loss_sim + adefde_loss_sim + nll_loss_sim + contrastive_loss)).backward()
                 else:
                     (nll_loss + adefde_loss + kl_loss).backward()
 
@@ -382,23 +375,23 @@ class Trainer:
                     self.writer.add_scalar("Loss/consistency", consistency_loss.item(), steps)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
            
                 
                 with torch.no_grad():
-                    if self.args.dataset == "s2r":
+                    if self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
                         ade_losses, fde_losses = self._compute_ego_errors(pred_obs_real, ego_out_real)
                     else:
                         ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                     epoch_ade_losses.append(ade_losses)
                     epoch_fde_losses.append(fde_losses)
-                    if self.args.dataset == "s2r":
+                    if self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
                         epoch_mode_probs.append(mode_probs_real.detach().cpu().numpy())
                     else:
                         epoch_mode_probs.append(mode_probs.detach().cpu().numpy())
 
-
+                # # Learning curve for time steps
                 # if steps % 10 == 0:
                 #     #get train ADE for each step here
                 #     ade_losses_step = epoch_ade_losses[-1]
@@ -442,12 +435,18 @@ class Trainer:
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
-                    elif self.args.dataset == "s2r":
+                    elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
                         print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs_real).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
+                    elif self.args.dataset == "s2r_baseline":
+                        print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
+                              "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
+                              "Prior Entropy", round(torch.mean(D.Categorical(mode_probs_real).entropy()).item(), 2),
+                              "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2)
+                              )
                     else:
                         print(i, "/", len(self.train_loader.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
@@ -513,7 +512,7 @@ class Trainer:
                 # encode observations
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
@@ -595,7 +594,7 @@ class Trainer:
                 # encode observations
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)

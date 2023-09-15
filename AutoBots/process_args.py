@@ -15,7 +15,7 @@ def get_train_args():
     # Section: Dataset
     parser.add_argument("--train_data_size", type=int, default=-1, help="Number of scenes to train on.")
     parser.add_argument("--dataset", type=str, required=True, choices=["Argoverse", "Nuscenes", "trajnet++",
-                                                                       "interaction-dataset", "synth", "s2r"],
+                                                                       "interaction-dataset", "synth", "s2r", "s2r_baseline", 's2r_pred_cl'],
                         help="Dataset to train on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Path to dataset files.")
     parser.add_argument("--use-map-image", type=bool, default=False, help="Use map image if applicable.")
@@ -73,7 +73,9 @@ def get_train_args():
     # Sim2Real
     parser.add_argument("--dataset-path-real", type=str, help="Path to real-world dataset files.")
     parser.add_argument("--dataset-path-synth", type=str, help="Path to synth dataset files.")
-
+    parser.add_argument("--batch-size-cl", type=int, default=128, help="Batch size")
+    # for check
+    parser.add_argument("--sim-pred-weight", type=float, default=1.0, help="Weight of prediction .")
     args = parser.parse_args()
 
     if args.use_map_image and args.use_map_lanes:
@@ -115,9 +117,9 @@ def get_eval_args():
     parser.add_argument("--save_step_start", type=int, default=14000, help="the step starting to save model")
     parser.add_argument("--save_step_end", type=int, default=16000, help="the step ending to save mode")
     parser.add_argument("--eval_interval", type=int, default=10, help="the interval of ckps")
-    parser.add_argument("--output_tag", type=str, required=True, help="tag for output.")
+    parser.add_argument("--output_tag", type=str, default='None', help="tag for output.")
+    parser.add_argument("--output_path", type=str, default='/scratch/izar/luan/ckps_eval/', help="path to store numpy files")
     args = parser.parse_args()
-
     config, model_dirname = load_config(args.models_path)
     config = namedtuple("config", config.keys())(*config.values())
     return args, config, model_dirname
@@ -138,6 +140,9 @@ def create_results_folder(args):
         model_configname += "_CW:" + str(int(args.consistency_weight))
     elif args.reg_type == "contrastive":
         model_configname += "_CW:" + str(int(args.contrastive_weight))
+    elif args.dataset == 's2r':
+        model_configname += "_CW:" + str(int(args.contrastive_weight))
+        model_configname += "_CB:" + str(int(args.batch_size_cl))
     if args.exp_id is not None:
         model_configname += ("_" + args.exp_id)
     model_configname += "_s"+str(args.seed)
@@ -162,7 +167,7 @@ def save_config(args, results_dirname):
 
 
 def load_config(model_path):
-    model_dirname = os.path.join(*model_path.split("/")[:-1])
+    model_dirname = '/' + os.path.join(*model_path.split("/")[:-1])
     assert os.path.isdir(model_dirname)
     with open(os.path.join(model_dirname, 'config.json'), 'r') as fp:
         config = json.load(fp)

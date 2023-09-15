@@ -1,0 +1,1 @@
+python evaluate_last_ckps.py --dataset-path ./datasets/eth-ucy/processed_6/zara2/ --models-path /scratch/izar/luan/results/s2r_pred_cl/Autobot_ego_NScene:-1_regType:None_s2r_pred_cl_zara2_0.05_s1/ --batch-size 64 --save_step_start 8000 --save_step_end 12000 --output_tag s2r_pred_cl_zara2_w_1000_b_64_p_0.05
