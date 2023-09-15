@@ -8,3 +8,4 @@
 /AutoBots/results/
 
 *.out
+*__pycache__*
