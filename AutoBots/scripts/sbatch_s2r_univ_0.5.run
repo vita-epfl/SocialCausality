@@ -1,0 +1,65 @@
+#!/bin/bash
+
+#SBATCH --chdir /home/yueliu/vita/SocialCausality/AutoBots
+#SBATCH --output slurm/s2r-univ-%j.out
+
+#SBATCH --cpus-per-task 20
+#SBATCH --mem 90G
+#SBATCH --time 8:00:00
+#SBATCH --gres=gpu:1
+#SBATCH --partition=gpu
+#SBATCH --qos=gpu
+
+echo "Start: $(date)"
+
+###################################
+
+module load gcc/11.3.0 python/3.10.4
+source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
+
+###################################
+
+SAVEDIR=/scratch/izar/yueliu/socialcausality
+
+low_data=1.0
+
+for weight in 0.0 0.1 1.0 10.0; do
+    python train.py \
+        --exp-id s2r_baseline_univ_${low_data}_pw_${weight} \
+        --seed 1 \
+        --dataset s2r_baseline \
+        --dataset-path ./datasets/eth-ucy/processed_6/univ_cheat/ \
+        --model-type Autobot-Ego \
+        --num-modes 1 \
+        --hidden-size 128 \
+        --num-encoder-layers 1 \
+        --num-decoder-layers 1 \
+        --dropout 0.0 \
+        --entropy-weight 40.0 \
+        --kl-weight 20.0 \
+        --use-FDEADE-aux-loss True \
+        --tx-hidden-size 384 \
+        --batch-size 64 \
+        --num-epochs $(echo "150/$low_data" | bc) \
+        --learning-rate 0.00075 \
+        --learning-rate-sched $(echo "10/$low_data" | bc) $(echo "20/$low_data" | bc) $(echo "30/$low_data" | bc) $(echo "40/$low_data" | bc) $(echo "50/$low_data" | bc) \
+        --save-every $(echo "10/$low_data" | bc) \
+        --val-every $(echo "10/$low_data" | bc) \
+        --low_data $low_data\
+        --save_step_start 3000\
+        --save_step_end 5000\
+        --save_every_ckp $(echo "10/$low_data" | bc) \
+        --dataset-path-real ./datasets/eth-ucy/processed_6/univ_cheat/\
+        --dataset-path-synth  /work/vita/ahmad_rh/synth_v2_0.5/ \
+        --contrastive-weight 1000 \
+        --save-dir $SAVEDIR \
+        --batch-size-cl 64\
+        --sim-pred-weight $weight &
+    # # evaluate
+    # python evaluate_last_ckps.py --dataset-path ./datasets/eth-ucy/processed_6/univ/ \
+    #     --models-path /scratch/izar/luan/results/s2r_baseline/Autobot_ego_NScene:-1_regType:None_s2r_baseline_univ_${low_data}_pw_${weight}_s1/ \
+    #     --batch-size 64 --save_step_start 3000 --save_step_end 5000 --output_tag s2r_baseline_univ_${low_data}_pw_${weight}
+done
+
+wait
+echo "End: $(date)"
