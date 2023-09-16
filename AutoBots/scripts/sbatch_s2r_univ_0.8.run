@@ -21,7 +21,7 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 
 SAVEDIR=/scratch/izar/yueliu/socialcausality
 
-low_data=1.0
+low_data=0.8
 
 for weight in 0.0 0.1 1.0 10.0; do
     python train.py \
