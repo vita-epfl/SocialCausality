@@ -21,12 +21,12 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 
 SAVEDIR=/scratch/izar/yueliu/socialcausality
 
-low_data=0.8
+low_data=1.0
 VALLARGE=1000000
 
 for weight in 0.0 0.1 1.0 10.0; do
     python train.py \
-        --exp-id s2r_baseline_dense_univ_${low_data}_pw_${weight} \
+        --exp-id s2r_baseline_dense_v1_univ_${low_data}_pw_${weight} \
         --seed 1 \
         --dataset s2r_baseline \
         --dataset-path ./datasets/eth-ucy/processed_6/univ_cheat/ \
@@ -51,7 +51,7 @@ for weight in 0.0 0.1 1.0 10.0; do
         --save_step_end $VALLARGE\
         --save_every_ckp $VALLARGE \
         --dataset-path-real ./datasets/eth-ucy/processed_6/univ_cheat/\
-        --dataset-path-synth  /work/vita/ahmad_rh/synth_v2_0.5/ \
+        --dataset-path-synth  /scratch/izar/luan/synth_v1_breaked/ \
         --contrastive-weight 1000 \
         --save-dir $SAVEDIR \
         --batch-size-cl 64\

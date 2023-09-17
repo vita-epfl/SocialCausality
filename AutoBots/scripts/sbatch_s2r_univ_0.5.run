@@ -5,7 +5,7 @@
 
 #SBATCH --cpus-per-task 20
 #SBATCH --mem 90G
-#SBATCH --time 8:00:00
+#SBATCH --time 6:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu
@@ -22,10 +22,11 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 SAVEDIR=/scratch/izar/yueliu/socialcausality
 
 low_data=0.5
+VALLARGE=1000000
 
 for weight in 0.0 0.1 1.0 10.0; do
     python train.py \
-        --exp-id s2r_baseline_univ_${low_data}_pw_${weight} \
+        --exp-id s2r_baseline_dense_univ_${low_data}_pw_${weight} \
         --seed 1 \
         --dataset s2r_baseline \
         --dataset-path ./datasets/eth-ucy/processed_6/univ_cheat/ \
@@ -43,12 +44,12 @@ for weight in 0.0 0.1 1.0 10.0; do
         --num-epochs $(echo "150/$low_data" | bc) \
         --learning-rate 0.00075 \
         --learning-rate-sched $(echo "10/$low_data" | bc) $(echo "20/$low_data" | bc) $(echo "30/$low_data" | bc) $(echo "40/$low_data" | bc) $(echo "50/$low_data" | bc) \
-        --save-every $(echo "10/$low_data" | bc) \
-        --val-every $(echo "10/$low_data" | bc) \
+        --save-every $VALLARGE\
+        --val-every 1 \
         --low_data $low_data\
-        --save_step_start 3000\
-        --save_step_end 5000\
-        --save_every_ckp $(echo "10/$low_data" | bc) \
+        --save_step_start $VALLARGE\
+        --save_step_end $VALLARGE\
+        --save_every_ckp $VALLARGE \
         --dataset-path-real ./datasets/eth-ucy/processed_6/univ_cheat/\
         --dataset-path-synth  /work/vita/ahmad_rh/synth_v2_0.5/ \
         --contrastive-weight 1000 \

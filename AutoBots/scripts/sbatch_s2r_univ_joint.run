@@ -19,17 +19,23 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 
 ###################################
 
-SAVEDIR=/scratch/izar/yueliu/socialcausality
+SAVEDIR=/scratch/izar/yueliu/socialcausality/s2r
 
-low_data=0.8
+REALDIR=./datasets/eth-ucy/processed_6/univ_cheat/
+SIMDIR=/work/vita/ahmad_rh/synth_v2_0.5/
+
+DATASET=univ
+
+DATASIZE=1.0
 VALLARGE=1000000
 
-for weight in 0.0 0.1 1.0 10.0; do
+SIMPRED=1.0
+for SIMCAUSAL in 0.1 1.0 10.0 100.0; do
     python train.py \
-        --exp-id s2r_baseline_dense_univ_${low_data}_pw_${weight} \
+        --exp-id s2r_univ_${DATASIZE}_causal_${SIMCAUSAL}_predict_${SIMPRED} \
         --seed 1 \
-        --dataset s2r_baseline \
-        --dataset-path ./datasets/eth-ucy/processed_6/univ_cheat/ \
+        --dataset s2r \
+        --dataset-path ${REALDIR} \
         --model-type Autobot-Ego \
         --num-modes 1 \
         --hidden-size 128 \
@@ -41,25 +47,22 @@ for weight in 0.0 0.1 1.0 10.0; do
         --use-FDEADE-aux-loss True \
         --tx-hidden-size 384 \
         --batch-size 64 \
-        --num-epochs $(echo "150/$low_data" | bc) \
+        --num-epochs $(echo "150/$DATASIZE" | bc) \
         --learning-rate 0.00075 \
-        --learning-rate-sched $(echo "10/$low_data" | bc) $(echo "20/$low_data" | bc) $(echo "30/$low_data" | bc) $(echo "40/$low_data" | bc) $(echo "50/$low_data" | bc) \
+        --learning-rate-sched $(echo "10/$DATASIZE" | bc) $(echo "20/$DATASIZE" | bc) $(echo "30/$DATASIZE" | bc) $(echo "40/$DATASIZE" | bc) $(echo "50/$DATASIZE" | bc) \
         --save-every $VALLARGE\
         --val-every 1 \
-        --low_data $low_data\
+        --low_data $DATASIZE\
         --save_step_start $VALLARGE\
         --save_step_end $VALLARGE\
         --save_every_ckp $VALLARGE \
-        --dataset-path-real ./datasets/eth-ucy/processed_6/univ_cheat/\
-        --dataset-path-synth  /work/vita/ahmad_rh/synth_v2_0.5/ \
+        --dataset-path-real ${REALDIR} \
+        --dataset-path-synth ${SIMDIR} \
         --contrastive-weight 1000 \
         --save-dir $SAVEDIR \
-        --batch-size-cl 64\
-        --sim-pred-weight $weight &
-    # # evaluate
-    # python evaluate_last_ckps.py --dataset-path ./datasets/eth-ucy/processed_6/univ/ \
-    #     --models-path /scratch/izar/luan/results/s2r_baseline/Autobot_ego_NScene:-1_regType:None_s2r_baseline_univ_${low_data}_pw_${weight}_s1/ \
-    #     --batch-size 64 --save_step_start 3000 --save_step_end 5000 --output_tag s2r_baseline_univ_${low_data}_pw_${weight}
+        --batch-size-cl 64 \
+        --s2r-causal ${SIMCAUSAL} \
+        --s2r-predict ${SIMPRED} &
 done
 
 wait

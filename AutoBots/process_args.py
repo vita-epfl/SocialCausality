@@ -15,7 +15,7 @@ def get_train_args():
     # Section: Dataset
     parser.add_argument("--train_data_size", type=int, default=-1, help="Number of scenes to train on.")
     parser.add_argument("--dataset", type=str, required=True, choices=["Argoverse", "Nuscenes", "trajnet++",
-                                                                       "interaction-dataset", "synth", "s2r", "s2r_baseline", 's2r_pred_cl'],
+                                                                       "interaction-dataset", "synth", "s2r"],
                         help="Dataset to train on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Path to dataset files.")
     parser.add_argument("--use-map-image", type=bool, default=False, help="Use map image if applicable.")
@@ -75,7 +75,9 @@ def get_train_args():
     parser.add_argument("--dataset-path-synth", type=str, help="Path to synth dataset files.")
     parser.add_argument("--batch-size-cl", type=int, default=128, help="Batch size")
     # for check
-    parser.add_argument("--sim-pred-weight", type=float, default=1.0, help="Weight of prediction .")
+    # parser.add_argument("--sim-pred-weight", type=float, default=1.0, help="Weight of prediction .")
+    parser.add_argument("--s2r-causal", type=float, default=0.0, help="Weight of prediction .")
+    parser.add_argument("--s2r-predict", type=float, default=0.0, help="Weight of prediction .")
     args = parser.parse_args()
 
     if args.use_map_image and args.use_map_lanes:
@@ -149,7 +151,10 @@ def create_results_folder(args):
 
     result_dirname = os.path.join(args.save_dir, "results", args.dataset, model_configname)
     if os.path.isdir(result_dirname):
-        answer = input(result_dirname + " exists. \n Do you wish to overwrite? (y/n)")
+        try:
+            answer = input(result_dirname + " exists. \n Do you wish to overwrite? (y/n)")
+        except Exception as e:
+            answer = 'y'
         if 'y' in answer:
             if os.path.isdir(os.path.join(result_dirname, "tb_files")):
                 for f in os.listdir(os.path.join(result_dirname, "tb_files")):
