@@ -1,3 +1,3 @@
-LOGDIR=/scratch/izar/yueliu/socialcausality/results
+LOGDIR=/scratch/izar/yueliu/socialcausality/0918/results/
 
-tensorboard --port=16007 --logdir=${LOGDIR}/s2r_baseline
+tensorboard --port=16010 --logdir=${LOGDIR}/s2r

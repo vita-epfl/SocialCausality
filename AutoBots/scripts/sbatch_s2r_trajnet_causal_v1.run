@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --chdir /home/yueliu/vita/SocialCausality/AutoBots
-#SBATCH --output slurm/s2r-univ-%j.out
+#SBATCH --output slurm/s2r-trajnet-%j.out
 
 #SBATCH --cpus-per-task 20
 #SBATCH --mem 90G
@@ -21,10 +21,10 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 
 SAVEDIR=/scratch/izar/yueliu/socialcausality/0919
 
-DATASET=univ
+DATASET=trajnet
 
-REALDIR=./datasets/eth-ucy/processed_6/${DATASET}_cheat/
-SIMDIR=/work/vita/ahmad_rh/synth_v2_0.5/
+REALDIR=/work/vita/luan/trajnet++/processed_6/
+SIMDIR=/scratch/izar/luan/synth_v1_breaked/
 
 DATASIZE=1.0
 VALLARGE=1000000
@@ -34,7 +34,7 @@ LR=0.0005
 SIMPRED=0.0
 for SIMCAUSAL in 0.5 1.0 2.0 4.0; do
     python train.py \
-        --exp-id s2r_${DATASET}_${DATASIZE}_causal_${SIMCAUSAL}_predict_${SIMPRED} \
+        --exp-id s2r_${DATASET}_${DATASIZE}_v1_causal_${SIMCAUSAL}_predict_${SIMPRED} \
         --seed 1 \
         --dataset s2r \
         --dataset-path ${REALDIR} \

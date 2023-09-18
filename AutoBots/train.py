@@ -461,11 +461,11 @@ class Trainer:
 
             # Log train metrics
             self.writer.add_scalar("metrics/Train minADE_{}".format(self.args.num_modes), train_minade_c[0], epoch)
-            self.writer.add_scalar("metrics/Train minADE_{}".format(10), train_minade_10[0], epoch)
-            self.writer.add_scalar("metrics/Train minADE_{}".format(5), train_minade_5[0], epoch)
-            self.writer.add_scalar("metrics/Train minADE_{}".format(1), train_minade_1[0], epoch)
+            # self.writer.add_scalar("metrics/Train minADE_{}".format(10), train_minade_10[0], epoch)
+            # self.writer.add_scalar("metrics/Train minADE_{}".format(5), train_minade_5[0], epoch)
+            # self.writer.add_scalar("metrics/Train minADE_{}".format(1), train_minade_1[0], epoch)
             self.writer.add_scalar("metrics/Train minFDE_{}".format(self.args.num_modes), train_minfde_c[0], epoch)
-            self.writer.add_scalar("metrics/Train minFDE_{}".format(1), train_minfde_1[0], epoch)
+            # self.writer.add_scalar("metrics/Train minFDE_{}".format(1), train_minfde_1[0], epoch)
 
             # update learning rate
             self.optimiser_scheduler.step()
@@ -542,11 +542,11 @@ class Trainer:
 
             # Log val metrics
             self.writer.add_scalar("metrics/Val minADE_{}".format(self.args.num_modes), val_minade_c[0], epoch)
-            self.writer.add_scalar("metrics/Val minADE_{}".format(10), val_minade_10[0], epoch)
-            self.writer.add_scalar("metrics/Val minADE_{}".format(5), val_minade_5[0], epoch)
-            self.writer.add_scalar("metrics/Val minADE_{}".format(1), val_minade_1[0], epoch)
+            # self.writer.add_scalar("metrics/Val minADE_{}".format(10), val_minade_10[0], epoch)
+            # self.writer.add_scalar("metrics/Val minADE_{}".format(5), val_minade_5[0], epoch)
+            # self.writer.add_scalar("metrics/Val minADE_{}".format(1), val_minade_1[0], epoch)
             self.writer.add_scalar("metrics/Val minFDE_{}".format(self.args.num_modes), val_minfde_c[0], epoch)
-            self.writer.add_scalar("metrics/Val minFDE_{}".format(1), val_minfde_1[0], epoch)
+            # self.writer.add_scalar("metrics/Val minFDE_{}".format(1), val_minfde_1[0], epoch)
             if self.args.evaluate_causal:
                 self.writer.add_scalar("metrics/Val consistency", np.array(val_consistency).mean(), epoch)
                 self.writer.add_scalar("metrics/Val HNC", val_HNC, epoch)
@@ -624,11 +624,11 @@ class Trainer:
 
             # Log val metrics
             self.writer.add_scalar("metrics step/Val minADE_{}".format(self.args.num_modes), val_minade_c[0], step)
-            self.writer.add_scalar("metrics step/Val minADE_{}".format(10), val_minade_10[0], step)
-            self.writer.add_scalar("metrics step/Val minADE_{}".format(5), val_minade_5[0], step)
-            self.writer.add_scalar("metrics step/Val minADE_{}".format(1), val_minade_1[0], step)
+            # self.writer.add_scalar("metrics step/Val minADE_{}".format(10), val_minade_10[0], step)
+            # self.writer.add_scalar("metrics step/Val minADE_{}".format(5), val_minade_5[0], step)
+            # self.writer.add_scalar("metrics step/Val minADE_{}".format(1), val_minade_1[0], step)
             self.writer.add_scalar("metrics step/Val minFDE_{}".format(self.args.num_modes), val_minfde_c[0], step)
-            self.writer.add_scalar("metrics step/Val minFDE_{}".format(1), val_minfde_1[0], step)
+            # self.writer.add_scalar("metrics step/Val minFDE_{}".format(1), val_minfde_1[0], step)
             if self.args.evaluate_causal:
                 self.writer.add_scalar("metrics/Val consistency", np.array(val_consistency).mean(), step)
                 self.writer.add_scalar("metrics/Val HNC", val_HNC, step)

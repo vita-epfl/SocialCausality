@@ -5,7 +5,7 @@
 
 #SBATCH --cpus-per-task 20
 #SBATCH --mem 90G
-#SBATCH --time 6:00:00
+#SBATCH --time 8:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu
@@ -19,20 +19,22 @@ source /home/yueliu/vita/SocialCausality/venvsocialcausal/bin/activate
 
 ###################################
 
-SAVEDIR=/scratch/izar/yueliu/socialcausality/s2r
-
-REALDIR=./datasets/eth-ucy/processed_6/univ_cheat/
-SIMDIR=/work/vita/ahmad_rh/synth_v2_0.5/
+SAVEDIR=/scratch/izar/yueliu/socialcausality/0919
 
 DATASET=univ
 
+REALDIR=./datasets/eth-ucy/processed_6/${DATASET}_cheat/
+SIMDIR=/work/vita/ahmad_rh/synth_v2_0.5/
+
 DATASIZE=1.0
 VALLARGE=1000000
+NEPOCH=300
+LR=0.0005
 
 SIMCAUSAL=0.0
-for SIMPRED in 0.0 0.1 1.0 10.0; do
+for SIMPRED in 0.0 0.5 1.0 5.0; do
     python train.py \
-        --exp-id s2r_univ_${DATASIZE}_causal_${SIMCAUSAL}_predict_${SIMPRED} \
+        --exp-id s2r_${DATASET}_${DATASIZE}_causal_${SIMCAUSAL}_predict_${SIMPRED} \
         --seed 1 \
         --dataset s2r \
         --dataset-path ${REALDIR} \
@@ -47,10 +49,9 @@ for SIMPRED in 0.0 0.1 1.0 10.0; do
         --use-FDEADE-aux-loss True \
         --tx-hidden-size 384 \
         --batch-size 64 \
-        --num-epochs $(echo "150/$DATASIZE" | bc) \
-        --learning-rate 0.00075 \
-        --learning-rate-sched $(echo "10/$DATASIZE" | bc) $(echo "20/$DATASIZE" | bc) $(echo "30/$DATASIZE" | bc) $(echo "40/$DATASIZE" | bc) $(echo "50/$DATASIZE" | bc) \
-        --save-every $VALLARGE\
+        --num-epochs $(echo "$NEPOCH/$DATASIZE" | bc) \
+        --learning-rate ${LR} \
+        --save-every $VALLARGE \
         --val-every 1 \
         --low_data $DATASIZE\
         --save_step_start $VALLARGE\
