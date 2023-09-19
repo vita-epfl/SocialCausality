@@ -15,7 +15,7 @@ from datasets.trajnetpp.dataset import TrajNetPPDataset
 from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_eval_args
-from utils.metric_helpers import min_xde_K, yaw_from_predictions, interpolate_trajectories, collisions_for_inter_dataset
+from utils.metric_helpers import min_xde_K, yaw_from_predictions, interpolate_trajectories, collisions_for_inter_dataset, collision_rate
 from utils.train_helpers import  calc_consistency_loss, HNC_ARS
 
 
@@ -97,7 +97,8 @@ class Evaluator:
                                             tx_hidden_size=self.model_config.tx_hidden_size,
                                             use_map_img=self.model_config.use_map_image,
                                             use_map_lanes=self.model_config.use_map_lanes,
-                                            map_attr=self.map_attr).to(self.device)
+                                            map_attr=self.map_attr,
+                                            return_embeddings=(self.model_config.reg_type == "contrastive" and self.model_config.dataset == "synth")).to(self.device)
 
         elif "Joint" in self.model_config.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -260,6 +261,7 @@ class Evaluator:
             val_ade_losses = []
             val_fde_losses = []
             val_mode_probs = []
+            val_collision_rates = []
             if self.args.evaluate_causal:
                 val_consistency = []
                 val_HNC, val_ARS = 0, []
@@ -271,17 +273,17 @@ class Evaluator:
                     scenes, causal_effects, data_splits = data
                     if not self.args.evaluate_causal:
                         scenes = [data[data_splits[:-1]] for data in scenes]
-                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
+                    ego_in, ego_out, agents_in, agents_out, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                 elif self.args.dataset == "trajnet++":
-                    ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(data, "Joint")
+                    ego_in, ego_out, agents_in, agents_out, context_img, _ = self._data_to_device(data, "Joint")
                     roads = context_img
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                 if "Ego" in self.model_config.model_type:
-                    if self.args.dataset == "synth" and self.model_config.reg_type == "contrastive":
+                    if self.model_config.dataset == "synth" and self.model_config.reg_type == "contrastive":
                         pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                     else:
                         pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
@@ -296,6 +298,9 @@ class Evaluator:
                     batch_HNC, batch_ARS = HNC_ARS(pred_obs, causal_effects, data_splits)
                 else:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
+                if self.args.dataset in ["synth", "trajnet++"]:
+                    coll_rate = collision_rate(pred_obs, agents_out)
+                    val_collision_rates.append(coll_rate)
 
                 val_ade_losses.append(ade_losses)
                 val_fde_losses.append(fde_losses)
@@ -328,6 +333,10 @@ class Evaluator:
                 print("minADE_{}:".format(self.model_config.num_modes), val_minade_c[0],
                       "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
                       "minFDE_{}:".format(self.model_config.num_modes), val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
+            if self.args.dataset in ["synth", "trajnet++"]:
+                val_collision_rates = np.concatenate(val_collision_rates)
+                print("Collision Rate:", val_collision_rates.mean())
+
 
     def evaluate(self):
         if "Joint" in self.model_config.model_type:

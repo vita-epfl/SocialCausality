@@ -1,6 +1,43 @@
 import numpy as np
 import torch
 
+def collision(path1, path2, n_predictions=12, person_radius=0.3, inter_parts=2):
+    """Check if there is collision or not"""
+
+    assert len(path1) >= n_predictions
+    path1 = path1[-n_predictions:]
+    path2 = path2[-n_predictions:]
+
+    def getinsidepoints(p1, p2, parts=2):
+        """return: equally distanced points between starting and ending "control" points"""
+
+        return np.array((np.linspace(p1[0], p2[0], parts + 1),
+                         np.linspace(p1[1], p2[1], parts + 1)))
+
+    for i in range(len(path1) - 1):
+        p1, p2 = path1[i], path1[i+1]
+        p3, p4 = path2[i], path2[i+1]
+        if np.min(np.linalg.norm(getinsidepoints(p1, p2, inter_parts) - getinsidepoints(p3, p4, inter_parts), axis=0)) \
+           <= 2 * person_radius:
+            return True
+
+    return False
+
+def collision_rate(pred_obs, agents_out, n_predictions=12, person_radius=0.3, inter_parts=2):
+    pred_obs = pred_obs.cpu().numpy()
+    agents_out = agents_out.cpu().numpy()
+    coll_list = []
+    for scene in range(pred_obs.shape[2]):
+        pred = pred_obs[0, :, scene, :2]
+        others_gt = agents_out[scene]
+        collisions = 0
+        for agent in range(others_gt.shape[1]):
+            if others_gt[0, agent, 2] == 0:
+                break
+            if collision(pred, others_gt[:, agent, :2], n_predictions, person_radius, inter_parts):
+                collisions += 1
+        coll_list.append(collisions)
+    return np.array(coll_list)
 
 def min_xde_K(xdes, probs, K):
     best_ks = probs.argsort(axis=1)[:, -K:]
