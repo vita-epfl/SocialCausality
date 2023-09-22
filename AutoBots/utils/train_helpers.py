@@ -134,6 +134,20 @@ def calc_contrastive_loss(embeds, causal_effects, data_splits, contrastive_weigh
     # breakpoint()
     return contrastive_loss
 
+def calc_ranking_loss(embeds, causal_effects, data_splits, ranking_weight=1.0, margin=0.1):
+    ranking_losses = []
+    for sample_id in range(len(causal_effects)):
+        q = embeds[data_splits[sample_id]]
+        keys = embeds[data_splits[sample_id] + 1:data_splits[sample_id + 1]]
+        keys = keys[torch.argsort(causal_effects[sample_id])]
+        dists = torch.matmul(keys, q)
+        ranking_losses.append(torch.nn.MarginRankingLoss(margin=margin)(dists[1:], dists[:-1], torch.ones(len(dists[1:])).to(dists.device)))
+    if len(ranking_losses) == 0:
+        return torch.Tensor(1)
+    ranking_loss = torch.mean(torch.stack(ranking_losses)) * ranking_weight
+    # breakpoint()
+    return ranking_loss
+
 def HNC_ARS(pred_obs, causal_effects, data_splits, non_causal_thresh=0.02, causal_thresh=0.1):
     HNC, ARS = 0, []
     for sample_id in range(len(causal_effects)):

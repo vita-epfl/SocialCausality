@@ -17,7 +17,7 @@ from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_train_args
 from utils.metric_helpers import min_xde_K
-from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss
+from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss, calc_ranking_loss
 
 
 class Trainer:
@@ -129,7 +129,7 @@ class Trainer:
                                             use_map_img=self.args.use_map_image,
                                             use_map_lanes=self.args.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=(self.args.reg_type == "contrastive" and self.args.dataset == "synth")).to(self.device)
+                                            return_embeddings=(self.args.reg_type in ["contrastive", "ranking"] and self.args.dataset == "synth")).to(self.device)
 
         elif "Joint" in self.args.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -233,12 +233,12 @@ class Trainer:
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
-                if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                if self.args.dataset == "synth" and self.args.reg_type in ["contrastive", "ranking"]:
                     pred_obs, mode_probs, embeds = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
 
-                if self.args.dataset == "synth" and self.args.reg_type in ["consistency", "contrastive"]:
+                if self.args.dataset == "synth" and self.args.reg_type in ["consistency", "contrastive", "ranking"]:
                     nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(
                         pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2],
                         mode_probs[data_splits[:-1]],
@@ -281,12 +281,23 @@ class Trainer:
                     #     torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
                     # print("traj grad norm: {} - contrastive grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm / contrastive_grad_norm))
                     # print("other loss: {} - contrastive loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), contrastive_loss.item(), (nll_loss + adefde_loss + kl_loss).item() / contrastive_loss.item()))
+                elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
+                    ranking_loss = calc_ranking_loss(embeds, causal_effects, data_splits, self.args.ranking_weight)
 
+                    traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
+
+                    ranking_grads = torch.autograd.grad(ranking_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
+
+                    traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
+                    ranking_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in ranking_grads if p is not None]), 2.0).item()
+                    print("traj grad norm: {} - ranking grad norm: {} - ratio: {}".format(traj_grad_norm, ranking_grad_norm, traj_grad_norm/ranking_grad_norm))
                 self.optimiser.zero_grad()
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                     (nll_loss + adefde_loss + kl_loss).backward(retain_graph=True)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
+                elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
+                    (nll_loss + adefde_loss + kl_loss + ranking_loss).backward()
                 else:
                     (nll_loss + adefde_loss + kl_loss).backward()
 
@@ -306,6 +317,8 @@ class Trainer:
                     self.writer.add_scalar("Loss/consistency", consistency_loss.item(), steps)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
+                elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
+                    self.writer.add_scalar("Loss/ranking", ranking_loss.item(), steps)
 
                 with torch.no_grad():
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
@@ -326,6 +339,12 @@ class Trainer:
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
+                    elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
+                        print(i, "/", len(self.train_loader.dataset) // self.args.batch_size,
+                              "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
+                              "Prior Entropy", round(torch.mean(D.Categorical(mode_probs).entropy()).item(), 2),
+                              "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
+                              "Ranking loss", round(ranking_loss.item(), 2))
                     else:
                         print(i, "/", len(self.train_loader.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
@@ -388,7 +407,7 @@ class Trainer:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                 # encode observations
-                if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
+                if self.args.dataset == "synth" and self.args.reg_type in ["contrastive", "ranking"]:
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
@@ -579,7 +598,7 @@ class Trainer:
     def load_optimiser(self):
         weights = torch.load(self.args.weight_path)
 
-        if self.args.reg_type == "contrastive":
+        if self.args.reg_type in ["contrastive", "ranking"]:
             for param_group in self.optimiser.param_groups:
                 param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
                 param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']

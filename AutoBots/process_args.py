@@ -24,7 +24,7 @@ def get_train_args():
     # Section: Algorithm
     parser.add_argument("--model-type", type=str, required=True, choices=["Autobot-Joint", "Autobot-Ego"],
                         help="Whether to train for joint prediction or ego-only prediction.")
-    parser.add_argument("--reg-type", type=str, default="None", choices=["None", "contrastive", "consistency"],
+    parser.add_argument("--reg-type", type=str, default="None", choices=["None", "contrastive", "consistency", "ranking"],
                         help="Whether to train causality with consistency or contrastive regularizer.")
     parser.add_argument("--num-modes", type=int, default=5, help="Number of discrete latent variables for Autobot.")
     parser.add_argument("--hidden-size", type=int, default=128, help="Model's hidden size.")
@@ -41,6 +41,7 @@ def get_train_args():
     parser.add_argument("--entropy-weight", type=float, default=1.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--consistency-weight", type=float, default=1.0, metavar="lamda", help="Weight of consistency loss.")
     parser.add_argument("--contrastive-weight", type=float, default=1.0, metavar="lamda", help="Weight of contrastive loss.")
+    parser.add_argument("--ranking-weight", type=float, default=1.0, metavar="lamda", help="Weight of ranking loss.")
     parser.add_argument("--kl-weight", type=float, default=1.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--use-FDEADE-aux-loss", type=bool, default=True,
                         help="Whether to use FDE/ADE auxiliary loss in addition to NLL (accelerates learning).")
