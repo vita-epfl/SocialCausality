@@ -42,6 +42,7 @@ def get_train_args():
     parser.add_argument("--consistency-weight", type=float, default=1.0, metavar="lamda", help="Weight of consistency loss.")
     parser.add_argument("--contrastive-weight", type=float, default=1.0, metavar="lamda", help="Weight of contrastive loss.")
     parser.add_argument("--ranking-weight", type=float, default=1.0, metavar="lamda", help="Weight of ranking loss.")
+    parser.add_argument("--ranking-margin", type=float, default=0.001, metavar="lamda", help="Margin of ranking loss.")
     parser.add_argument("--kl-weight", type=float, default=1.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--use-FDEADE-aux-loss", type=bool, default=True,
                         help="Whether to use FDE/ADE auxiliary loss in addition to NLL (accelerates learning).")
@@ -94,7 +95,7 @@ def get_eval_args():
     parser.add_argument("--dataset", type=str, required=True, choices=["Argoverse", "Nuscenes", "trajnet++",
                                                                        "interaction-dataset", "synth"], help="Dataset to evaluate on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Dataset path.")
-    parser.add_argument("--batch-size", type=int, default=100, help="Batch size")
+    parser.add_argument("--batch-size", type=int, default=200, help="Batch size")
     parser.add_argument("--disable-cuda", action="store_true", help="Disable CUDA")
     parser.add_argument("--evaluate_causal", action="store_true", help="Evaluates causality understanding metrics.")
     args = parser.parse_args()
@@ -119,6 +120,8 @@ def create_results_folder(args):
         model_configname += "_CW:" + str(int(args.consistency_weight))
     elif args.reg_type == "contrastive":
         model_configname += "_CW:" + str(int(args.contrastive_weight))
+    elif args.reg_type == "ranking":
+        model_configname += "_CW:" + str(int(args.ranking_weight)) + "_CM:" + str(args.ranking_margin)
     if args.exp_id is not None:
         model_configname += ("_" + args.exp_id)
     model_configname += "_s"+str(args.seed)
