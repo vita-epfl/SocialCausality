@@ -17,8 +17,8 @@ from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_train_args
 from utils.metric_helpers import min_xde_K
-from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss
-
+from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss, calc_contrastive_loss_sim, calc_ranking_loss
+from simsiam import SimSiam
 
 class Trainer:
     def __init__(self, args, results_dirname):
@@ -35,7 +35,12 @@ class Trainer:
 
         self.initialize_dataloaders()
         self.initialize_model()
-        self.optimiser = optim.Adam(self.autobot_model.parameters(), lr=self.args.learning_rate,
+        if self.args.simsiam:
+            # list(model1.parameters()) + list(model2.parameters()
+            self.optimiser = optim.Adam(list(self.autobot_model.parameters())+list(self.simsiam_model.parameters()), lr=self.args.learning_rate,
+                                    eps=self.args.adam_epsilon)
+        else:
+            self.optimiser = optim.Adam(self.autobot_model.parameters(), lr=self.args.learning_rate,
                                     eps=self.args.adam_epsilon)
         if self.args.weight_path != "":
                 self.load_optimiser()
@@ -161,7 +166,10 @@ class Trainer:
                                             use_map_img=self.args.use_map_image,
                                             use_map_lanes=self.args.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=((self.args.reg_type == "contrastive" and self.args.dataset == "synth") or self.args.dataset == "s2r" or self.args.dataset == "s2r_baseline" or self.args.dataset == 's2r_pred_cl')).to(self.device)
+                                            return_embeddings=((self.args.reg_type == ["contrastive", "ranking"] and self.args.dataset == "synth") or self.args.dataset == "s2r" or self.args.dataset == "s2r_baseline" or self.args.dataset == 's2r_pred_cl'),
+                                            project_emb=self.args.simsiam).to(self.device)
+            if self.args.simsiam:
+                self.simsiam_model = SimSiam().cuda()
 
         elif "Joint" in self.args.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -281,7 +289,8 @@ class Trainer:
 
                 if self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     pred_obs, mode_probs, embeds = self.autobot_model(ego_in, agents_in, roads)
-                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
+                elif (self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl') and self.args.reg_type in ["consistency", "contrastive", "ranking"]:
+
                     # Forward 2 times
                     # Real
                     pred_obs_real, mode_probs_real, embeds_real = self.autobot_model(ego_in_real, agents_in_real, roads_real)
@@ -291,7 +300,7 @@ class Trainer:
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
 
-                if self.args.dataset == "synth" and self.args.reg_type in ["consistency", "contrastive"]:
+                if self.args.dataset == "synth" and self.args.reg_type in ["consistency", "contrastive", "ranking"]:
                     nll_loss, kl_loss, post_entropy, adefde_loss = nll_loss_multimodes(
                         pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2],
                         mode_probs[data_splits[:-1]],
@@ -311,6 +320,8 @@ class Trainer:
                                                                                        entropy_weight=self.args.entropy_weight,
                                                                                        kl_weight=self.args.kl_weight,
                                                                                        use_FDEADE_aux_loss=self.args.use_FDEADE_aux_loss)
+                    # Sim
+
                     nll_loss_sim, kl_loss_sim, post_entropy_sim, adefde_loss_sim = nll_loss_multimodes(pred_obs_sim, ego_out_sim[:, :, :2], mode_probs_sim,
                                                                                        entropy_weight=self.args.entropy_weight,
                                                                                        kl_weight=self.args.kl_weight,
@@ -332,7 +343,7 @@ class Trainer:
                     # print("traj grad norm: {} - consistency grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm/contrastive_grad_norm))
                     # print("other loss: {} - consistency loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), consistency_loss.item(), (nll_loss + adefde_loss + kl_loss).item()/consistency_loss.item()))
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
-                    contrastive_loss = calc_contrastive_loss(embeds, causal_effects, data_splits, self.args.contrastive_weight)
+                          contrastive_loss = calc_contrastive_loss(embeds, causal_effects, data_splits, self.args.contrastive_weight)
 
                     # traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss,
                     #                                  [p for p in self.autobot_model.parameters() if p.requires_grad],
@@ -347,21 +358,42 @@ class Trainer:
                     #     torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
                     # print("traj grad norm: {} - contrastive grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm / contrastive_grad_norm))
                     # print("other loss: {} - contrastive loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), contrastive_loss.item(), (nll_loss + adefde_loss + kl_loss).item() / contrastive_loss.item()))
-                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
+                elif (self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "contrastive":
+
                     # Sim
-                    contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
+                    if self.args.simsiam:
+                        contrastive_loss = calc_contrastive_loss_sim(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight, self.simsiam_model)
+                    else:
+                        contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
+                elif (self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "ranking":
+                    # rankin loss for sim
+                    ranking_loss = calc_ranking_loss(embeds_sim, causal_effects, data_splits, self.args.ranking_weight)
+
+                    # traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
+
+                    # ranking_grads = torch.autograd.grad(ranking_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
+
+                    # traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
+                    # ranking_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in ranking_grads if p is not None]), 2.0).item()
+                    # print("traj grad norm: {} - ranking grad norm: {} - ratio: {}".format(traj_grad_norm, ranking_grad_norm, traj_grad_norm/ranking_grad_norm))
 
                 self.optimiser.zero_grad()
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                     (nll_loss + adefde_loss + kl_loss + consistency_loss).backward()
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
-                elif self.args.dataset == "s2r":
+                elif self.args.dataset == "s2r" and self.args.reg_type == "contrastive":
                     (nll_loss + adefde_loss + kl_loss + contrastive_loss).backward()
-                elif self.args.dataset == 's2r_baseline':
-                    ((nll_loss + adefde_loss + kl_loss) + self.args.sim_pred_weight*(nll_loss_sim + adefde_loss_sim + nll_loss_sim)).backward()
-                elif self.args.dataset == 's2r_pred_cl':
-                    ((nll_loss + adefde_loss + kl_loss) + (nll_loss_sim + adefde_loss_sim + nll_loss_sim + contrastive_loss)).backward()
+                elif self.args.dataset == 's2r_baseline' and self.args.reg_type == "contrastive":
+                    (nll_loss + adefde_loss + kl_loss + nll_loss_sim + adefde_loss_sim + kl_loss_sim).backward()
+                elif self.args.dataset == 's2r_pred_cl' and self.args.reg_type == "contrastive":
+                    (nll_loss + adefde_loss + kl_loss + nll_loss_sim + adefde_loss_sim + kl_loss_sim + contrastive_loss).backward()
+                elif self.args.dataset == "s2r" and self.args.reg_type == "ranking":
+                    (nll_loss + adefde_loss + kl_loss + ranking_loss).backward()
+                elif self.args.dataset == 's2r_baseline' and self.args.reg_type == "ranking":
+                    (nll_loss + adefde_loss + kl_loss + nll_loss_sim + adefde_loss_sim + kl_loss_sim).backward()
+                elif self.args.dataset == 's2r_pred_cl' and self.args.reg_type == "ranking":
+                    (nll_loss + adefde_loss + kl_loss + nll_loss_sim + adefde_loss_sim + kl_loss_sim + ranking_loss).backward()
                 else:
                     (nll_loss + adefde_loss + kl_loss).backward()
 
@@ -375,9 +407,11 @@ class Trainer:
                     self.writer.add_scalar("Loss/consistency", consistency_loss.item(), steps)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
-                elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
+                elif self.args.dataset == ("s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "contrastive":
+
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
-           
+                elif self.args.dataset == ("s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "ranking":
+                    self.writer.add_scalar("Loss/ranking", ranking_loss.item(), steps)
                 
                 with torch.no_grad():
                     if self.args.dataset == "s2r" or self.args.dataset == 's2r_baseline' or self.args.dataset == 's2r_pred_cl':
@@ -392,30 +426,31 @@ class Trainer:
                         epoch_mode_probs.append(mode_probs.detach().cpu().numpy())
 
                 # # Learning curve for time steps
-                # if steps % 10 == 0:
-                #     #get train ADE for each step here
-                #     ade_losses_step = epoch_ade_losses[-1]
-                #     fde_losses_step = epoch_fde_losses[-1]
-                #     mode_probs_step = epoch_mode_probs[-1]
+                if steps % 10 == 0:
+                    #get train ADE for each step here
+                    ade_losses_step = epoch_ade_losses[-1]
+                    fde_losses_step = epoch_fde_losses[-1]
+                    mode_probs_step = epoch_mode_probs[-1]
 
-                #     train_minade_c_step = min_xde_K(ade_losses_step, mode_probs_step, K=self.args.num_modes)
-                #     train_minade_10_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
-                #     train_minade_5_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 5))
-                #     train_minade_1_step = min_xde_K(ade_losses_step, mode_probs_step, K=1)
-                #     train_minfde_c_step = min_xde_K(fde_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
-                #     train_minfde_1_step = min_xde_K(fde_losses_step, mode_probs_step, K=1)
-                #     print("Train minADE c:", train_minade_c_step[0], "Train minADE 1:", train_minade_1_step[0], "Train minFDE c:", train_minfde_c_step[0])
+                    train_minade_c_step = min_xde_K(ade_losses_step, mode_probs_step, K=self.args.num_modes)
+                    train_minade_10_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
+                    train_minade_5_step = min_xde_K(ade_losses_step, mode_probs_step, K=min(self.args.num_modes, 5))
+                    train_minade_1_step = min_xde_K(ade_losses_step, mode_probs_step, K=1)
+                    train_minfde_c_step = min_xde_K(fde_losses_step, mode_probs_step, K=min(self.args.num_modes, 10))
+                    train_minfde_1_step = min_xde_K(fde_losses_step, mode_probs_step, K=1)
+                    print("Train minADE c:", train_minade_c_step[0], "Train minADE 1:", train_minade_1_step[0], "Train minFDE c:", train_minfde_c_step[0])
 
-                #     # Log train metrics
-                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(self.args.num_modes), train_minade_c_step[0], steps)
-                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(10), train_minade_10_step[0], steps)
-                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(5), train_minade_5_step[0], steps)
-                #     self.writer.add_scalar("metrics step/Train minADE_{}".format(1), train_minade_1_step[0], steps)
-                #     self.writer.add_scalar("metrics step/Train minFDE_{}".format(self.args.num_modes), train_minfde_c_step[0], steps)
-                #     self.writer.add_scalar("metrics step/Train minFDE_{}".format(1), train_minfde_1_step[0], steps)
+                    # Log train metrics
+                    self.writer.add_scalar("metrics step/Train minADE_{}".format(self.args.num_modes), train_minade_c_step[0], steps)
+                    self.writer.add_scalar("metrics step/Train minADE_{}".format(10), train_minade_10_step[0], steps)
+                    self.writer.add_scalar("metrics step/Train minADE_{}".format(5), train_minade_5_step[0], steps)
+                    self.writer.add_scalar("metrics step/Train minADE_{}".format(1), train_minade_1_step[0], steps)
+                    self.writer.add_scalar("metrics step/Train minFDE_{}".format(self.args.num_modes), train_minfde_c_step[0], steps)
+                    self.writer.add_scalar("metrics step/Train minFDE_{}".format(1), train_minfde_1_step[0], steps)
 
-                #     # get val ADE for each step here
-                #     self.autobotego_evaluate_step(steps)
+                    # get val ADE for each step here
+                    self.autobotego_evaluate_step(steps)
+
 
                 if steps >= args.save_step_start and steps < args.save_step_end:
                     if steps % self.args.save_every_ckp == 0:
@@ -435,12 +470,19 @@ class Trainer:
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
-                    elif self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl':
+                    elif (self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "contrastive":
+
                         print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
                               "Prior Entropy", round(torch.mean(D.Categorical(mode_probs_real).entropy()).item(), 2),
                               "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
                               "Contrastive loss", round(contrastive_loss.item(), 2))
+                    elif (self.args.dataset == "s2r" or self.args.dataset == 's2r_pred_cl') and self.args.reg_type == "ranking":
+                        print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
+                              "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
+                              "Prior Entropy", round(torch.mean(D.Categorical(mode_probs_real).entropy()).item(), 2),
+                              "Post Entropy", round(post_entropy, 2), "ADE+FDE loss", round(adefde_loss.item(), 2),
+                              "Ranking loss", round(ranking_loss.item(), 2))
                     elif self.args.dataset == "s2r_baseline":
                         print(i, "/", len(self.train_loader_real.dataset) // self.args.batch_size,
                               "NLL loss", round(nll_loss.item(), 2), "KL loss", round(kl_loss.item(), 2),
@@ -483,8 +525,8 @@ class Trainer:
             self.save_model(epoch)
             print("Best minADE c", self.smallest_minade_k, "Best minFDE c", self.smallest_minfde_k)
 
-            if steps > args.save_step_end:
-                break
+            # if steps > args.save_step_end:
+            #     break
 
     def autobotego_evaluate(self, epoch):
         self.autobot_model.eval()
@@ -785,16 +827,17 @@ class Trainer:
     def load_optimiser(self):
         weights = torch.load(self.args.weight_path)
 
-        for param_group in self.optimiser.param_groups:
-            param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
-            param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']
+        if self.args.reg_type in ["contrastive", "ranking"]:
+            for param_group in self.optimiser.param_groups:
+                param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
+                param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']
 
-        new_ids = [i for i, p in enumerate(self.autobot_model.named_parameters()) if not "contrastive_projector" in p[0]]
-        assert len(new_ids) == len(weights["optimiser"]['state'])
-        new_state_dict = {new_ids[i]: weights["optimiser"]['state'][i] for i in range(len(new_ids))}
-        self.optimiser.state_dict()['state'] = new_state_dict
-
-        # self.optimiser.load_state_dict(weights["optimiser"])
+            new_ids = [i for i, p in enumerate(self.autobot_model.named_parameters()) if not "contrastive_projector" in p[0]]
+            assert len(new_ids) == len(weights["optimiser"]['state'])
+            new_state_dict = {new_ids[i]: weights["optimiser"]['state'][i] for i in range(len(new_ids))}
+            self.optimiser.state_dict()['state'] = new_state_dict
+        else:
+            self.optimiser.load_state_dict(weights["optimiser"])
 
     def save_init_model(self):
         torch.save(

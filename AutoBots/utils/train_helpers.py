@@ -134,6 +134,77 @@ def calc_contrastive_loss(embeds, causal_effects, data_splits, contrastive_weigh
     # breakpoint()
     return contrastive_loss
 
+# Simsiam version
+def calc_contrastive_loss_sim(embeds, causal_effects, data_splits, contrastive_weight=1.0, simsiam_model=None):
+    cos_sim = torch.nn.CosineSimilarity(dim=1)
+    p1_batch = []
+    p2_batch = []
+    for sample_id in range(len(causal_effects)):
+        p1_i = embeds[data_splits[sample_id]] 
+        positives = np.where(causal_effects[sample_id].cpu().numpy() <= 0.02)[0]
+        if len(positives) > 0:
+            p1_batch.append(p1_i)
+            positive_id = np.random.choice(positives, 1)[0]
+            p2_i = embeds[data_splits[sample_id] + 1 + positive_id]
+            p2_batch.append(p2_i)
+
+    if len(p1_batch) == 0:
+        return torch.Tensor(1)
+    
+    p1_batch = torch.stack(p1_batch, dim=0)
+    p2_batch = torch.stack(p2_batch, dim=0)
+
+    # SimSiam
+    p1, p2, z1, z2 = simsiam_model(p1_batch, p2_batch)
+    contrastive_loss = (-(cos_sim(p1, z2).mean() + cos_sim(p2, z1).mean()) * 0.5) * contrastive_weight
+
+    return contrastive_loss 
+
+def calc_ranking_loss(embeds, causal_effects, data_splits, ranking_weight=1.0, margin=0.001):
+    ranking_losses = []
+    for sample_id in range(len(causal_effects)):
+        # Compute the distance of counterfactuals to the factual scene
+        q = embeds[data_splits[sample_id]]
+        keys = embeds[data_splits[sample_id] + 1:data_splits[sample_id + 1]]
+        keys = keys[torch.argsort(causal_effects[sample_id])]
+        dists = torch.matmul(keys, q)
+
+        # Compute the difference of causal effect matrix
+        ce = causal_effects[sample_id][torch.argsort(causal_effects[sample_id])]
+        ce_row = ce.unsqueeze(1)
+        ce_col = ce.unsqueeze(0)
+        diff_ce = ce_col - ce_row
+
+        # Create a mask for values between 0.2 and 0.5
+        mask = (diff_ce >= 0.2) & (diff_ce <= 0.5)
+
+        # Take the indices of the columns that are valid according to the mask
+        cols = torch.arange(mask.size(1)).expand_as(mask).to(mask.device)
+        valid_cols = cols[mask]
+
+        # Calculate the number of valid columns per row which is the number of elements in the valid_cols for each row
+        lengths = mask.sum(dim=1)
+        if lengths.max().item() == 0:
+            continue  # The mask is empty, skip this sample
+
+        # Make the offsets for valid_cols, with offset[i] pointing out to the first element in valid_cols for row i
+        offsets = torch.cat((torch.tensor([0]).to(mask.device), lengths.cumsum(dim=0)[:-1]))
+
+        # Create a random index for each row and select the corresponding column from valid_cols
+        rand_indices = torch.randint_like(lengths, 0, lengths.max().item()).to(mask.device)
+        rand_indices = rand_indices % lengths
+        selection = (offsets + rand_indices).long()
+        selected_cols = valid_cols[selection[lengths > 0]]
+
+        # Calculate the ranking loss
+        ranking_losses.append(torch.nn.MarginRankingLoss(margin=margin)(dists[selected_cols], dists[lengths > 0], torch.ones((lengths > 0).sum()).to(dists.device)))
+
+    if len(ranking_losses) == 0:
+        return torch.Tensor(1)
+    ranking_loss = torch.mean(torch.stack(ranking_losses)) * ranking_weight
+    return ranking_loss 
+
+
 def HNC_ARS(pred_obs, causal_effects, data_splits, non_causal_thresh=0.02, causal_thresh=0.1):
     HNC, ARS = 0, []
     for sample_id in range(len(causal_effects)):

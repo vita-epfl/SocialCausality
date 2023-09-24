@@ -24,7 +24,7 @@ def get_train_args():
     # Section: Algorithm
     parser.add_argument("--model-type", type=str, required=True, choices=["Autobot-Joint", "Autobot-Ego"],
                         help="Whether to train for joint prediction or ego-only prediction.")
-    parser.add_argument("--reg-type", type=str, default="None", choices=["None", "contrastive", "consistency"],
+    parser.add_argument("--reg-type", type=str, default="None", choices=["None", "contrastive", "consistency", "ranking"],
                         help="Whether to train causality with consistency or contrastive regularizer.")
     parser.add_argument("--num-modes", type=int, default=5, help="Number of discrete latent variables for Autobot.")
     parser.add_argument("--hidden-size", type=int, default=128, help="Model's hidden size.")
@@ -41,6 +41,8 @@ def get_train_args():
     parser.add_argument("--entropy-weight", type=float, default=1.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--consistency-weight", type=float, default=1.0, metavar="lamda", help="Weight of consistency loss.")
     parser.add_argument("--contrastive-weight", type=float, default=1.0, metavar="lamda", help="Weight of contrastive loss.")
+    parser.add_argument("--ranking-weight", type=float, default=1.0, metavar="lamda", help="Weight of ranking loss.")
+    parser.add_argument("--ranking-margin", type=float, default=0.001, metavar="lamda", help="Margin of ranking loss.")
     parser.add_argument("--kl-weight", type=float, default=1.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--use-FDEADE-aux-loss", type=bool, default=True,
                         help="Whether to use FDE/ADE auxiliary loss in addition to NLL (accelerates learning).")
@@ -74,8 +76,10 @@ def get_train_args():
     parser.add_argument("--dataset-path-real", type=str, help="Path to real-world dataset files.")
     parser.add_argument("--dataset-path-synth", type=str, help="Path to synth dataset files.")
     parser.add_argument("--batch-size-cl", type=int, default=128, help="Batch size")
-    # for check
+    # Simsiam
+    parser.add_argument("--simsiam", action='store_true', help="switch to Simsiam")
     parser.add_argument("--sim-pred-weight", type=float, default=1.0, help="Weight of prediction .")
+
     args = parser.parse_args()
 
     if args.use_map_image and args.use_map_lanes:
@@ -117,8 +121,9 @@ def get_eval_args():
     parser.add_argument("--save_step_start", type=int, default=14000, help="the step starting to save model")
     parser.add_argument("--save_step_end", type=int, default=16000, help="the step ending to save mode")
     parser.add_argument("--eval_interval", type=int, default=10, help="the interval of ckps")
-    parser.add_argument("--output_tag", type=str, default='None', help="tag for output.")
+    parser.add_argument("--output_tag", type=str, help="tag for output.")
     parser.add_argument("--output_path", type=str, default='/scratch/izar/luan/ckps_eval/', help="path to store numpy files")
+
     args = parser.parse_args()
     config, model_dirname = load_config(args.models_path)
     config = namedtuple("config", config.keys())(*config.values())
@@ -140,6 +145,8 @@ def create_results_folder(args):
         model_configname += "_CW:" + str(int(args.consistency_weight))
     elif args.reg_type == "contrastive":
         model_configname += "_CW:" + str(int(args.contrastive_weight))
+    elif args.reg_type == "ranking":
+        model_configname += "_CW:" + str(int(args.ranking_weight)) + "_CM:" + str(args.ranking_margin)
     elif args.dataset == 's2r':
         model_configname += "_CW:" + str(int(args.contrastive_weight))
         model_configname += "_CB:" + str(int(args.batch_size_cl))
