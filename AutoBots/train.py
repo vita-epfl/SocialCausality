@@ -82,7 +82,7 @@ class Trainer:
             val_dset = ArgoH5Dataset(dset_path=self.args.dataset_path, split_name="val",
                                      use_map_lanes=self.args.use_map_lanes)
         elif self.args.dataset == "synth":
-            train_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="train", size=self.args.train_data_size) # TODO Check if this is correct
+            train_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="train", size=self.args.train_data_size)
             val_dset = SynthV1CausalDataset(dset_path=self.args.dataset_path, split="val")
         else:
             raise NotImplementedError
@@ -221,12 +221,18 @@ class Trainer:
             for i, data in enumerate(self.train_loader):
                 if self.args.dataset == "synth":
                     scenes, causal_effects, data_splits = data
+                    causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                     if self.args.reg_type == "None":
-                        # breakpoint()
                         scenes = [data[data_splits[:-1]] for data in scenes]
+                    elif self.args.reg_type == "augment":
+                        mask = np.zeros(len(scenes[0]))
+                        mask[data_splits[:-1]] = 1
+                        for sample_id in range(len(causal_effects)):
+                            mask[data_splits[sample_id] + 1:data_splits[sample_id + 1]] = causal_effects[sample_id].cpu().numpy() <= 0.02
+                        mask = torch.tensor(mask).bool()
+                        scenes = [data[mask] for data in scenes]
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
-                    causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                 elif "trajnet++" in self.args.dataset:
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(data, "Joint")
                     roads = context_img
@@ -259,7 +265,7 @@ class Trainer:
                     # encoder_params = list(self.autobot_model.agents_dynamic_encoder.parameters()) + \
                     #                  list(self.autobot_model.temporal_attn_layers.parameters()) + \
                     #                  list(self.autobot_model.social_attn_layers.parameters())
-                    # contrastive_grads = torch.autograd.grad(consistency_loss, [p for p in encoder_params if p.requires_grad], retain_graph=True, allow_unused=True)
+                    # contrastive_grads = torch.autograd.grad(consistency_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
                     #
                     # traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
                     # contrastive_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
