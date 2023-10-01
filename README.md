@@ -6,8 +6,8 @@
 
 > TL;DR: we investigate causal representation learning in the multi-agent context, from computational formalism to controlled simulations to real-world practice.
 > 1. we cast doubt on the notion of non-causal robustness in the previous benchmark, revealing that recent representations tend to underestimate indirect causal effects
-> 2. we introduce a causal regularization approach, encapsulating a contrastive and a ranking variant, which leads to not only higher causal awareness but also stronger out-of-distribution robustness
-> 3. we propose a sim-to-real causal transfer framework, which results in more causally-aware representations in practical settings even without real-world annotations
+> 2. we introduce a causal regularization approach, including a contrastive and a ranking variant, which leads to higher causal awareness and out-of-distribution robustness
+> 3. we propose a sim-to-real causal transfer framework, which enables causally-aware representation learning in practical settings even without real-world annotations
 
 <p align="center">
   <img src="docs/method.png" width="800">
@@ -52,17 +52,17 @@ To evaluate on OOD sets:
 
 ## Main Results
 
-Comparision of different methods in terms of causal awareness:
+Comparison of different methods in terms of causal awareness:
 <p align="left">
   <img src="docs/ace.png" height="200">
 </p>
 
-Comparision of different methods in terms of out-of-distribution robustness:
+Comparison of different methods in terms of out-of-distribution robustness:
 <p align="left">
   <img src="docs/ood.png" height="200">
 </p>
 
-Comparision of different transfer methods from simulation to the ETH-UCY dataset:
+Comparison of different transfer methods from simulation to the ETH-UCY dataset:
 <p align="left">
   <img src="docs/transfer.png" height="200">
 </p>
