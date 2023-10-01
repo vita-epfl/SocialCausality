@@ -1,84 +1,80 @@
-# Social Causality: Towards Causally-aware Neural Representations of Multi-agent Interactions
+## Causally-Aware Representations of Multi-Agent Interactions
 
-![teaser](docs/pull_new.png)
+<p align="center">
+  <img src="docs/background.png" width="600">
+</p>
 
-This repository is the official implementation
-of  ["Social Causality: Towards Causally-aware Neural Representations of Multi-agent Interactions"]().
+> TL;DR: we investigate causal representation learning in the multi-agent context, from computational formalism to controlled simulations to real-world practice.
+> 1. we cast doubt on the notion of non-causal robustness in the previous benchmark, revealing that recent representations tend to underestimate indirect causal effects
+> 2. we introduce a causal regularization approach, encapsulating a contrastive and a ranking variant, which leads to not only higher causal awareness but also stronger out-of-distribution robustness
+> 3. we propose a sim-to-real causal transfer framework, which results in more causally-aware representations in practical settings even without real-world annotations
 
-Authors: Yeujiang Liu*, Ahmad Rahimi*, Frano Rajic*, Po-Chien Luan, and Alexandre Alahi
-
-[[arXiv]]()
-
-## Abstract
-
-Modeling spatial-temporal interactions between neighboring agents is at the heart of
-multi-agent problems such as motion forecasting and crowd navigation. Despite notable
-progress, recent neural representations of these interactions still struggle to capture the
-underlying causal relationships. In this work, we take an in-depth look at the challenges
-and prospects of modeling social causality in the multi-agent context. First, we cast doubt
-on the notion of causal robustness in recent work. We show that modern forecasting
-models are already partially resilient to perturbations of non-causal agents. Yet, certain
-cases such as indirect causal effects involving mediator agents remain exceedingly difficult
-to model. To address this challenge, we propose two regularizers that exploit annotations
-of varying granularity. Through controlled experiments, we demonstrate the efficacy of
-the proposed regularizers as well as the advantages of finer-grained annotations. Finally,
-we systematically examine representations with different degrees of causal awareness in
-challenging settings, including low-data regimes and distribution shifts. Our results shed
-light on the crucial role of causal understanding in addressing robustness concerns in
-interaction modeling.
-
-## Method
-
-### Contrastive Regularizer
-
-Using contrastive learning to learn causal representations of multi-agent interactions.
-Given a scene as anchor, we sample a positive scene by removing a non-causal agent from the scene, and negative scenes
-by removing causal agents, one at a time.
-Finally, the InfoNCE loss is used as a regularizer to learn the desired causal representation.
-
-### Consistency Regularizer
-
-The amount of change in the ground-truth trajectory of ego agent, after removing an agent in the scene, which we call
-the causal effect, is directly used as the supervision signal for the consistency regularizer.
-The amount of change in predicted trajectory is penalized if it is not consistent with the ground-truth causal effect.
-
-![method](docs/Causal_reg_overviews.png)
+<p align="center">
+  <img src="docs/method.png" width="800">
+</p>
 
 ## Getting Started
 
-- [Synthetic Dataset](SynthDataset/README.md) [In progress]
+To install requirements:
+```
+pip install -r requirements.txt
+```
 
-- [AutoBots baseline](AutoBots/README.md)
+To download dataset:
+```
+?TODO?
+```
 
-- [Trajnet++ baseline](trajnet++/README.md) [In progress]
+To train the [AutoBots](https://openreview.net/forum?id=Dup_dDqkZC5) baseline:
+```
+?TODO?
+```
+
+To run the [data augmentation](https://arxiv.org/abs/2207.03586) baseline:
+```
+?TODO?
+```
+
+To run the contrastive regularization:
+```
+?TODO?
+```
+
+To run the ranking regularization:
+```
+?TODO?
+```
+
+To evaluate on OOD sets:
+```
+?TODO?
+```
 
 ## Main Results
 
-#### Comparing the performance of Directional LSTM with its regularized versions on causality metrics
+Comparision of different methods in terms of causal awareness:
+<p align="left">
+  <img src="docs/ace.png" height="200">
+</p>
 
-| Model       | ADE   | ARS (gain)    | HNC (gain)     |
-|-------------|-------|---------------|----------------|
-| D-LSTM      | 0.369 | 0.047         | 6491           |
-| Contrastive | 0.371 | 0.044 (+6.4%) | 5448 (+15.1%)  |
-| Consistency | 0.369 | 0.042 (+10.6%)| 5229 (+19.4%)  |
+Comparision of different methods in terms of out-of-distribution robustness:
+<p align="left">
+  <img src="docs/ood.png" height="200">
+</p>
 
-#### Comparing the performance of AutoBots with its regularized versions on causality metrics when trained on 1000 scenarios
-
-| Model       | ADE       | ARS (gain)     | HNC (gain)     |
-|-------------|-----------|----------------|----------------|
-| AutoBots    | 0.374     | 0.129          | 17646          |
-| Contrastive | 0.373     | 0.103 (+20.2%) | 15023 (+14.8%) |
-| Consistency | 0.369     | 0.123 (+4.7%)  | 16807 (+4.6%)  |
+Comparision of different transfer methods from simulation to the ETH-UCY dataset:
+<p align="left">
+  <img src="docs/transfer.png" height="200">
+</p>
 
 ## Citation
 
 If you find this work useful in your research, please consider cite:
 
 ```
-@article{liu2023social,
-  title={Social Causality: Towards Causally-aware Neural Representations of Multi-agent Interactions},
-  author={Liu, Yeujiang and Rahimi, Ahmad and Rajic, Frano and Luan, Po-Chien and Alahi, Alexandre},
-  journal={arXiv preprint arXiv:2106.01901},
+@article{socialcausality2023,
+  title={What If You Were Not There? Learning Causally-Aware Representations of Multi-Agent Interactions},
+  journal={openreview},
   year={2023}
 }
 ```
