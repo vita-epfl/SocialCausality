@@ -4,59 +4,44 @@ import numpy as np
 from torch.utils.data import Dataset
 import torch
 import pickle
-from datasets.synth.create_data_npys import drop_distant
-from datasets.synth.create_data_npys import center_scene
-from datasets.synth.create_data_npys import shift
-from datasets.synth.create_data_npys import theta_rotation
+import math
 
-class SynthV1Dataset(Dataset):
-    def __init__(self, dset_path, filename, size=-1):
-        # TODO: Note that the number of agents is hardcoded to match the
-        #       standard Synth-v1. This parameter as well as the dataset
-        #       preprocessing parameter `--max-number-of-agents` must be
-        #       tweaked if a different dataset is used, e.g., one of the
-        #       out-of-distribution datasets related to Synth-v1. 
-        self.num_others = 11
 
-        self.pred_horizon = 12
-        self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
-        self.in_seq_len = 8
-        self.predict_yaw = False
-        self.map_attr = 0  # dummy
-        self.k_attr = 2
-        dataset_path = os.path.join(dset_path, filename)
-        print(f"SynthV1Dataset: Loading dataset from {os.path.abspath(dataset_path)}")
-        self.agents_dataset = np.load(dataset_path)[:, :, :self.num_others + 1]
-        if size != -1:
-            self.agents_dataset = self.agents_dataset[:size]
+def drop_distant(xy, max_num_peds=5):
+    """
+    Only Keep the max_num_peds closest pedestrians
+    """
+    distance_2 = np.sum(np.square(xy - xy[:, 0:1]), axis=2)
+    smallest_dist_to_ego = np.nanmin(distance_2, axis=0)
+    return xy[:, np.argsort(smallest_dist_to_ego)[:(max_num_peds)]]
 
-    def unpack_datapoint(self, trajectories):
-        assert len(trajectories) == self.in_seq_len + self.pred_horizon
 
-        # Remove nan values and add mask column to state
-        data_mask = np.ones((trajectories.shape[0], trajectories.shape[1], 3))
-        data_mask[:, :, :2] = trajectories
-        nan_indices = np.where(np.isnan(trajectories[:, :, 0]))
-        data_mask[nan_indices] = [0, 0, 0]
+def shift(xy, center):
+    xy = xy - center[np.newaxis, np.newaxis, :]
+    return xy
 
-        # Separate past and future.
-        agents_in = data_mask[:self.in_seq_len]
-        agents_out = data_mask[self.in_seq_len:]
 
-        ego_in = agents_in[:, 0]
-        ego_out = agents_out[:, 0]
+def theta_rotation(xy, theta):
+    ct = math.cos(theta)
+    st = math.sin(theta)
 
-        agent_types = np.ones((self.num_others + 1, self.num_agent_types))
-        roads = np.ones((1, 1))  # for dataloading to work with other datasets that have images.
+    r = np.array([[ct, st], [-st, ct]])
+    return np.einsum('ptc,ci->pti', xy, r)
 
-        return ego_in, ego_out, agents_in[:, 1:], agents_out[:, 1:], roads, agent_types
 
-    def __getitem__(self, idx: int):
-        trajectories = self.agents_dataset[idx]
-        return self.unpack_datapoint(trajectories)
+def center_scene(xy, obs_length=8, ped_id=0):
+    ## Center
+    center = xy[obs_length - 1, ped_id]  ## Last Observation
+    xy = shift(xy, center)
 
-    def __len__(self):
-        return len(self.agents_dataset)
+    ## Rotate
+    last_obs = xy[obs_length - 1, ped_id]
+    second_last_obs = xy[obs_length - 2, ped_id]
+    diff = np.array([last_obs[0] - second_last_obs[0], last_obs[1] - second_last_obs[1]])
+    thet = np.arctan2(diff[1], diff[0])
+    rotation = -thet + np.pi / 2
+    xy = theta_rotation(xy, rotation)
+    return xy, rotation, center
 
 
 class SynthV1CausalDataset(Dataset):
@@ -82,10 +67,7 @@ class SynthV1CausalDataset(Dataset):
             self.size = len(os.listdir(self.dataset_path))
         else:
             self.size = min(self.size, len(os.listdir(self.dataset_path)))
-        # with open(dataset_path, "rb") as f:
-        #     self.raw_dataset = pickle.load(f)["scenes"]
-        # if size != -1:
-        #     self.raw_dataset = self.raw_dataset[:size]
+
     def unpack_datapoint(self, trajectories):
         assert len(trajectories) == self.in_seq_len + self.pred_horizon
 
@@ -123,10 +105,8 @@ class SynthV1CausalDataset(Dataset):
         f_cf_scenes = []
         cf_causal_effects = []
 
-        # scene = self.raw_dataset[idx]
         with open(os.path.join(self.dataset_path, "scene_"+str(idx)+".pkl"), "rb") as f:
             scene = pickle.load(f)
-        # self.raw_dataset = pickle.load(f)["scenes"]
 
         num_agents = len(scene["trajectories"])
 

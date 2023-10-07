@@ -24,6 +24,22 @@ To download dataset:
 ```
 ?TODO?
 ```
+You should have the following directory structure for the ID and OOD datasets:
+
+```
+
+─── dataset-name
+   ├── train
+   │   ├── scene_0.pkl
+   │   ├── scene_1.pkl
+   │   ├── ...
+   │   └── scene_19999.pkl
+   └── val
+       ├── scene_0.pkl
+       ├── scene_1.pkl
+       ├── ...
+       └── scene_1999.pkl
+```
 
 To train the [AutoBots](https://openreview.net/forum?id=Dup_dDqkZC5) baseline:
 ```

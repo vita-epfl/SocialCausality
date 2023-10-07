@@ -46,7 +46,6 @@ class Trainer:
         if self.args.reg_type == "consistency":
             encoder_params = list(self.autobot_model.social_attn_layers.parameters()) + \
                              list(self.autobot_model.temporal_attn_layers.parameters()) #+ \
-                             # list(self.autobot_model.agents_dynamic_encoder.parameters())
             self.consistency_optimiser = optim.Adam(encoder_params, lr=self.optimiser.param_groups[0]["lr"],
                                                     eps=self.args.adam_epsilon)
             self.consistency_scheduler = MultiStepLR(self.consistency_optimiser, milestones=args.learning_rate_sched, gamma=0.5,
@@ -260,43 +259,12 @@ class Trainer:
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                     consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, self.args.consistency_weight)
 
-                    # traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
-                    #
-                    # encoder_params = list(self.autobot_model.agents_dynamic_encoder.parameters()) + \
-                    #                  list(self.autobot_model.temporal_attn_layers.parameters()) + \
-                    #                  list(self.autobot_model.social_attn_layers.parameters())
-                    # contrastive_grads = torch.autograd.grad(consistency_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
-                    #
-                    # traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
-                    # contrastive_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
-                    # print("traj grad norm: {} - consistency grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm/contrastive_grad_norm))
-                    # print("other loss: {} - consistency loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), consistency_loss.item(), (nll_loss + adefde_loss + kl_loss).item()/consistency_loss.item()))
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     contrastive_loss = calc_contrastive_loss(embeds, causal_effects, data_splits, self.args.contrastive_weight)
 
-                    # traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss,
-                    #                                  [p for p in self.autobot_model.parameters() if p.requires_grad],
-                    #                                  retain_graph=True, allow_unused=True)
-                    # contrastive_grads = torch.autograd.grad(contrastive_loss,
-                    #                                         [p for p in self.autobot_model.parameters() if
-                    #                                          p.requires_grad], retain_graph=True, allow_unused=True)
-                    #
-                    # traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]),
-                    #                             2.0).item()
-                    # contrastive_grad_norm = torch.norm(
-                    #     torch.stack([torch.norm(p, 2.0) for p in contrastive_grads if p is not None]), 2.0).item()
-                    # print("traj grad norm: {} - contrastive grad norm: {} - ratio: {}".format(traj_grad_norm, contrastive_grad_norm, traj_grad_norm / contrastive_grad_norm))
-                    # print("other loss: {} - contrastive loss: {} - ratio: {}".format((nll_loss + adefde_loss + kl_loss).item(), contrastive_loss.item(), (nll_loss + adefde_loss + kl_loss).item() / contrastive_loss.item()))
                 elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
                     ranking_loss = calc_ranking_loss(embeds, causal_effects, data_splits, self.args.ranking_weight)
 
-                    traj_grads = torch.autograd.grad(nll_loss + adefde_loss + kl_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
-
-                    ranking_grads = torch.autograd.grad(ranking_loss, [p for p in self.autobot_model.parameters() if p.requires_grad], retain_graph=True, allow_unused=True)
-
-                    traj_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in traj_grads if p is not None]), 2.0).item()
-                    ranking_grad_norm = torch.norm(torch.stack([torch.norm(p, 2.0) for p in ranking_grads if p is not None]), 2.0).item()
-                    print("traj grad norm: {} - ranking grad norm: {} - ratio: {}".format(traj_grad_norm, ranking_grad_norm, traj_grad_norm/ranking_grad_norm))
                 self.optimiser.zero_grad()
                 if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                     (nll_loss + adefde_loss + kl_loss).backward(retain_graph=True)
@@ -417,7 +385,6 @@ class Trainer:
                     pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                 else:
                     pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
-                # pred_obs, mode_probs = self.autobot_model(ego_in, agents_in, roads)
 
                 if self.args.evaluate_causal:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2])

@@ -98,7 +98,7 @@ class Evaluator:
                                             use_map_img=self.model_config.use_map_image,
                                             use_map_lanes=self.model_config.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=(self.model_config.reg_type == "contrastive" and self.model_config.dataset == "synth")).to(self.device)
+                                            return_embeddings=(self.model_config.reg_type in ["contrastive", "ranking"] and self.model_config.dataset == "synth")).to(self.device)
 
         elif "Joint" in self.model_config.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
