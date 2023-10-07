@@ -27,27 +27,32 @@ To download dataset:
 
 To train the [AutoBots](https://openreview.net/forum?id=Dup_dDqkZC5) baseline:
 ```
-?TODO?
+python train.py --exp-id baseline --save-dir <results directory, e.g., ./ > --dataset-path <path to synth dataset> --evaluate_causal
 ```
 
 To run the [data augmentation](https://arxiv.org/abs/2207.03586) baseline:
 ```
-?TODO?
+python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type augment
 ```
+
+For the causal regularization, we have two variants: contrastive and ranking. We fine-tune the baseline model with the causal regularization for 50 epochs. 
+Therefore, you should first train the baseline to be able to run the causal regularization.
 
 To run the contrastive regularization:
 ```
-?TODO?
+python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type contrastive \
+        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700
 ```
 
 To run the ranking regularization:
 ```
-?TODO?
+python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type ranking \
+        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700
 ```
 
 To evaluate on OOD sets:
 ```
-?TODO?
+python evaluate.py --models-path <path to the model> --dataset-path <path to the ood dataset>
 ```
 
 ## Main Results
