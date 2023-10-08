@@ -20,10 +20,9 @@ To install requirements:
 pip install -r requirements.txt
 ```
 
-To download dataset:
-```
-?TODO?
-```
+You can download our diagnostic synthetic dataset from [here](https://drive.google.com/file/d/1j4heKWyUia4hYhKY6pjLteoN9o0kfeKe/view?usp=drive_link). 
+It contains 20k training and 2k test scenes for the in-distribution dataset, and 2k scenes for each of the out-of-distribution datasets (OODs). 
+
 You should have the following directory structure for the ID and OOD datasets:
 
 ```
