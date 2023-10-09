@@ -4,7 +4,7 @@
   <img src="docs/background.png" width="600">
 </p>
 
-> TL;DR: we investigate causal representation learning in the multi-agent context, from computational formalism to controlled simulations to real-world practice.
+> TL;DR: we investigate causal representation learning in the multi-agent context, from computational formalisms to controlled simulations to real-world applications.
 > 1. we cast doubt on the notion of non-causal robustness in the previous benchmark, revealing that recent representations tend to underestimate indirect causal effects
 > 2. we introduce a causal regularization approach, including a contrastive and a ranking variant, which leads to higher causal awareness and out-of-distribution robustness
 > 3. we propose a sim-to-real causal transfer framework, which enables causally-aware representation learning in practical settings even without real-world annotations
@@ -20,11 +20,7 @@ To install requirements:
 pip install -r requirements.txt
 ```
 
-You can download our diagnostic synthetic dataset from [here](https://drive.google.com/file/d/1j4heKWyUia4hYhKY6pjLteoN9o0kfeKe/view?usp=drive_link). 
-It contains 20k training and 2k test scenes for the in-distribution dataset, and 2k scenes for each of the out-of-distribution datasets (OODs). 
-
-You should have the following directory structure for the ID and OOD datasets:
-
+Our diagnostic dataset can be downloaded from [Google drive](https://drive.google.com/file/d/1j4heKWyUia4hYhKY6pjLteoN9o0kfeKe/view?usp=drive_link). It comprises 20k training scenes, 2k in-distribution test scenes, and 2k out-of-distribution test scenes, with the following directory structure:
 ```
 
 ─── dataset-name
@@ -40,6 +36,8 @@ You should have the following directory structure for the ID and OOD datasets:
        └── scene_1999.pkl
 ```
 
+## Baselines
+
 To train the [AutoBots](https://openreview.net/forum?id=Dup_dDqkZC5) baseline:
 ```
 python train.py --exp-id baseline --save-dir <results directory, e.g., ./ > --dataset-path <path to synth dataset> --evaluate_causal
@@ -50,8 +48,9 @@ To run the [data augmentation](https://arxiv.org/abs/2207.03586) baseline:
 python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type augment
 ```
 
-For the causal regularization, we have two variants: contrastive and ranking. We fine-tune the baseline model with the causal regularization for 50 epochs. 
-Therefore, you should first train the baseline to be able to run the causal regularization.
+## Regularization
+
+For a fair and efficient comparision between different methods, we fine-tune the same pre-trained model in our experiments.
 
 To run the contrastive regularization:
 ```
@@ -70,7 +69,7 @@ To evaluate on OOD sets:
 python evaluate.py --models-path <path to the model> --dataset-path <path to the ood dataset>
 ```
 
-## Main Results
+## Results
 
 Comparison of different methods in terms of causal awareness:
 <p align="left">
