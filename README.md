@@ -68,7 +68,35 @@ To evaluate on OOD sets:
 ```
 python evaluate.py --models-path <path to the model> --dataset-path <path to the ood dataset>
 ```
-
+## ETH-UCY
+### Vanilla w/o sim
+To run the vanilla model:
+```
+python train.py --exp-id <output tag> --dataset s2r --reg-type contrastive --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --contrastive-weight 0.0 --save-dir <directory for saving results> 
+```
+### Sim2Real
+To run the baseline:
+```
+python train.py --exp-id <output tag> --dataset s2r --reg-type baseline --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
+```
+To run the augmentation:
+```
+python train.py --exp-id <output tag> --dataset s2r --reg-type augment --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
+```
+To run the ranking regularization:
+```
+python train.py --exp-id <output tag> --dataset s2r --reg-type ranking --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --ranking-weight <weight of ranking loss> --save-dir <directory for saving results> 
+```
+To run the contrastive regularization:
+```
+python train.py --exp-id <output tag> --dataset s2r --reg-type contrastive --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --contrastive-weight <weight of contrastive loss> --save-dir <directory for saving results> 
+```
+If you want to train in low-data regimes, you can modify --low-data and --learning-rate-sched. For example, training with 50% data, you can set --low-data to 0.5 and --learning-rate-sched to 20 40 60 80 100, dividing each epoch by 0.5.<br />
+<br />
+To evaluate a model:
+```
+python evaluate.py --dataset-path <path to the testing data> --models-path <path to the model> --dataset s2r
+```
 ## Results
 
 Comparison of different methods in terms of causal awareness:
