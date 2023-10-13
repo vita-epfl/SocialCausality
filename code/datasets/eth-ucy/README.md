@@ -1,4 +1,5 @@
 # ETH-UCY Setup
+Our ETH-UCY dataset with trajnet++ format can be downloaded from [Google drive](https://drive.google.com/file/d/178Vq7MFXT-Y1DPuGelgU2T9eewLeYeay/view?usp=drive_link).
 Extract the data :
 
 ```
