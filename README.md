@@ -57,14 +57,16 @@ For a fair and efficient comparision between different methods, we fine-tune the
 To run the contrastive regularization:
 ```
 python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type contrastive \
-        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700
+        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700 --num-epochs 785 --save-every 5 --val-every 5 --num-proj-warmup-epochs 10
 ```
 
 To run the ranking regularization:
 ```
 python train.py --exp-id baseline --save-dir <results directory, e.g., ./> --dataset-path <path to synth dataset> --evaluate_causal --reg-type ranking \
-        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700
+        --weight-path <path to the last ckpt of baseline model, e.g., ./results/Autobot_ego_regType:None_baseline_s1/models_700.pth> --start-epoch 700 --num-epochs 785 --save-every 5 --val-every 5 --num-proj-warmup-epochs 10
 ```
+
+The default seed parameter is 1. To run the same experiment with a different seed, set `--seed` to the desired value. In our experiments, we also used seeds 10, 20, 30, 40 to ensure the robustness of our results.
 
 ### Evaluation
 

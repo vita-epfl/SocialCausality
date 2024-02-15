@@ -115,15 +115,31 @@ def calc_consistency_loss(pred_obs, causal_effects, data_splits, consistency_wei
     return consistency_loss
 
 
-def calc_contrastive_loss(embeds, causal_effects, data_splits, contrastive_weight=1.0, tau=0.2):
-    infonces = []
+def calc_contrastive_loss(embeds, causal_effects, directly_causals, data_splits, contrastive_weight=1.0, tau=0.2, poison_prob=0):
+    infonces, is_poisoned = [], []
     for sample_id in range(len(causal_effects)):
         q = embeds[data_splits[sample_id]]
-        positives = np.where(causal_effects[sample_id].cpu().numpy() <= 0.02)[0]
+        NC_mask = causal_effects[sample_id] <= 0.02
+        IC_mask = torch.logical_and(causal_effects[sample_id] >= 0.1, torch.logical_not(directly_causals[sample_id]))
+        DC_mask = torch.logical_and(causal_effects[sample_id] >= 0.1, directly_causals[sample_id])
+
+        # if the posion_prob is not 0, we will poison the data by adding IC samples to NC to make the positives
+        if poison_prob > 0:
+            positives = np.where(torch.logical_or(NC_mask, IC_mask).cpu().numpy())[0]
+            weights = np.array([1 if NC_mask[idd] else poison_prob for idd in positives])
+        else:
+            positives = np.where(NC_mask.cpu().numpy())[0]
+            weights = np.ones(len(positives))
         if len(positives) > 0:
-            positive_id = np.random.choice(positives, 1)[0]
+            positive_id = np.random.choice(positives, 1, p=weights / weights.sum())[0]
+            is_poisoned.append(IC_mask[positive_id].cpu().item())
+
             k_plus = embeds[data_splits[sample_id] + 1 + positive_id]
-            k_negs = embeds[data_splits[sample_id] + 1 + np.where(causal_effects[sample_id].cpu().numpy() >= 0.1)[0]]
+
+            if poison_prob > 0:
+                k_negs = embeds[data_splits[sample_id] + 1 + np.where(DC_mask.cpu().numpy())[0]]
+            else:
+                k_negs = embeds[data_splits[sample_id] + 1 + np.where(torch.logical_or(DC_mask, IC_mask).cpu().numpy())[0]]
 
             numerator = torch.matmul(q, k_plus) / tau
             denominator = torch.exp(numerator) + torch.sum(torch.exp(torch.matmul(k_negs, q) / tau))
@@ -131,53 +147,63 @@ def calc_contrastive_loss(embeds, causal_effects, data_splits, contrastive_weigh
     if len(infonces) == 0:
         return torch.Tensor(1)
     contrastive_loss = torch.mean(torch.stack(infonces)) * contrastive_weight
-    # breakpoint()
-    return contrastive_loss
+    return contrastive_loss, np.mean(is_poisoned)
 
-def calc_ranking_loss(embeds, causal_effects, data_splits, ranking_weight=1.0, margin=0.001):
-    ranking_losses = []
+def calc_ranking_loss(embeds, causal_effects, directly_causals, data_splits, ranking_weight=1.0, margin=0.001, do_consecutive=True, poison_prob=0):
+    ranking_losses, ranking_accuracies = [], []
     for sample_id in range(len(causal_effects)):
+        # do poisoning
+        if poison_prob > 0:
+            IC_mask = torch.logical_and(causal_effects[sample_id] >= 0.1, torch.logical_not(directly_causals[sample_id]))
+            poisoning_indices = np.where(IC_mask.cpu().numpy())[0]
+            poison_indices = np.random.choice(poisoning_indices, int(poison_prob * len(poisoning_indices)), replace=False)
+            causal_effects[sample_id][poison_indices] = 0.0
         # Compute the distance of counterfactuals to the factual scene
         q = embeds[data_splits[sample_id]]
         keys = embeds[data_splits[sample_id] + 1:data_splits[sample_id + 1]]
         keys = keys[torch.argsort(causal_effects[sample_id])]
         dists = torch.matmul(keys, q)
 
-        # Compute the difference of causal effect matrix
-        ce = causal_effects[sample_id][torch.argsort(causal_effects[sample_id])]
-        ce_row = ce.unsqueeze(1)
-        ce_col = ce.unsqueeze(0)
-        diff_ce = ce_col - ce_row
+        if do_consecutive:
+            ranking_losses.append(torch.nn.MarginRankingLoss(margin=margin)(dists[:-1], dists[1:], torch.ones(len(dists[1:])).to(dists.device)))
+            ranking_accuracies.append((dists[:-1] > dists[1:]).float().cpu().numpy().mean() * 100)
+        else:
+            # Compute the difference of causal effect matrix
+            ce = causal_effects[sample_id][torch.argsort(causal_effects[sample_id])]
+            ce_row = ce.unsqueeze(1)
+            ce_col = ce.unsqueeze(0)
+            diff_ce = ce_col - ce_row
 
-        # Create a mask for values between 0.2 and 0.5
-        mask = (diff_ce >= 0.2) & (diff_ce <= 0.5)
+            # Create a mask for values between 0.2 and 0.5
+            mask = (diff_ce >= 0.2) & (diff_ce <= 0.5)
 
-        # Take the indices of the columns that are valid according to the mask
-        cols = torch.arange(mask.size(1)).expand_as(mask).to(mask.device)
-        valid_cols = cols[mask]
+            # Take the indices of the columns that are valid according to the mask
+            cols = torch.arange(mask.size(1)).expand_as(mask).to(mask.device)
+            valid_cols = cols[mask]
 
-        # Calculate the number of valid columns per row which is the number of elements in the valid_cols for each row
-        lengths = mask.sum(dim=1)
-        if lengths.max().item() == 0:
-            continue  # The mask is empty, skip this sample
+            # Calculate the number of valid columns per row which is the number of elements in the valid_cols for each row
+            lengths = mask.sum(dim=1)
+            if lengths.max().item() == 0:
+                continue  # The mask is empty, skip this sample
 
-        # Make the offsets for valid_cols, with offset[i] pointing out to the first element in valid_cols for row i
-        offsets = torch.cat((torch.tensor([0]).to(mask.device), lengths.cumsum(dim=0)[:-1]))
+            # Make the offsets for valid_cols, with offset[i] pointing out to the first element in valid_cols for row i
+            offsets = torch.cat((torch.tensor([0]).to(mask.device), lengths.cumsum(dim=0)[:-1]))
 
-        # Create a random index for each row and select the corresponding column from valid_cols
-        rand_indices = torch.randint_like(lengths, 0, lengths.max().item()).to(mask.device)
-        rand_indices = rand_indices % lengths
-        selection = (offsets + rand_indices).long()
-        selected_cols = valid_cols[selection[lengths > 0]]
+            # Create a random index for each row and select the corresponding column from valid_cols
+            rand_indices = torch.randint_like(lengths, 0, lengths.max().item()).to(mask.device)
+            rand_indices = rand_indices % lengths
+            selection = (offsets + rand_indices).long()
+            selected_cols = valid_cols[selection[lengths > 0]]
 
-        # Calculate the ranking loss
-        ranking_losses.append(torch.nn.MarginRankingLoss(margin=margin)(dists[selected_cols], dists[lengths > 0], torch.ones((lengths > 0).sum()).to(dists.device)))
+            # Calculate the ranking loss
+            ranking_losses.append(torch.nn.MarginRankingLoss(margin=margin)(dists[lengths > 0], dists[selected_cols], torch.ones((lengths > 0).sum()).to(dists.device)))
+            ranking_accuracies.append((dists[lengths > 0] > dists[selected_cols]).float().cpu().numpy().mean() * 100)
 
     if len(ranking_losses) == 0:
         return torch.Tensor(1)
     ranking_loss = torch.mean(torch.stack(ranking_losses)) * ranking_weight
-    # breakpoint()
-    return ranking_loss
+    ranking_accuracy = np.mean(ranking_accuracies)
+    return ranking_loss, ranking_accuracy
 
 def HNC_ARS(pred_obs, causal_effects, data_splits, non_causal_thresh=0.02, causal_thresh=0.1):
     HNC, ARS = 0, []
@@ -191,6 +217,29 @@ def HNC_ARS(pred_obs, causal_effects, data_splits, non_causal_thresh=0.02, causa
         HNC += (sensitivities[c_e < non_causal_thresh] > causal_thresh).sum()
         ARS.append(sensitivities[c_e < non_causal_thresh])
     return HNC, ARS
+
+def ACEs(pred_obs, causal_effects, directly_causals, data_splits, non_causal_thresh=0.02, causal_thresh=0.1):
+    NC_ACE, IC_ACE, DC_ACE, Ignored_ACE = [], [], [], []
+    for sample_id in range(len(causal_effects)):
+        f_pred = pred_obs[0, :, data_splits[sample_id], :2]
+        cf_preds = pred_obs[0, :, data_splits[sample_id] + 1:data_splits[sample_id + 1], :2]
+        sensitivities = torch.norm(cf_preds - f_pred.unsqueeze(1), 2, dim=-1).mean(dim=0)
+
+        NC_mask = causal_effects[sample_id] <= non_causal_thresh
+        IC_mask = torch.logical_and(causal_effects[sample_id] >= causal_thresh, torch.logical_not(directly_causals[sample_id]))
+        DC_mask = torch.logical_and(causal_effects[sample_id] >= causal_thresh, directly_causals[sample_id])
+        Ignored_mask = torch.logical_and(causal_effects[sample_id] > non_causal_thresh, causal_effects[sample_id] < causal_thresh)
+
+        NC_ACE.append(torch.stack([torch.abs(sensitivities[NC_mask] - causal_effects[sample_id][NC_mask]), causal_effects[sample_id][NC_mask], sensitivities[NC_mask]]).T)
+        IC_ACE.append(torch.stack([torch.abs(sensitivities[IC_mask] - causal_effects[sample_id][IC_mask]), causal_effects[sample_id][IC_mask], sensitivities[IC_mask]]).T)
+        DC_ACE.append(torch.stack([torch.abs(sensitivities[DC_mask] - causal_effects[sample_id][DC_mask]), causal_effects[sample_id][DC_mask], sensitivities[DC_mask]]).T)
+        Ignored_ACE.append(torch.stack([torch.abs(sensitivities[Ignored_mask] - causal_effects[sample_id][Ignored_mask]), causal_effects[sample_id][Ignored_mask], sensitivities[Ignored_mask]]).T)
+
+    NC_ACE = torch.cat(NC_ACE)
+    IC_ACE = torch.cat(IC_ACE)
+    DC_ACE = torch.cat(DC_ACE)
+    Ignored_ACE = torch.cat(Ignored_ACE)
+    return NC_ACE, IC_ACE, DC_ACE, Ignored_ACE
 
 # ==================================== AUTOBOT-JOINT STUFF ====================================
 

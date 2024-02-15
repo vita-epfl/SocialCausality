@@ -16,7 +16,7 @@ from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_eval_args
 from utils.metric_helpers import min_xde_K, yaw_from_predictions, interpolate_trajectories, collisions_for_inter_dataset, collision_rate
-from utils.train_helpers import  calc_consistency_loss, HNC_ARS
+from utils.train_helpers import  calc_consistency_loss, HNC_ARS, ACEs
 
 
 class Evaluator:
@@ -88,6 +88,13 @@ class Evaluator:
 
     def initialize_model(self):
         if "Ego" in self.model_config.model_type:
+            proj_dim1 = 256
+            proj_dim2 = 128
+            proj_dim3 = 0
+            if hasattr(self.model_config, 'projector_dim1'):
+                proj_dim1 = self.model_config.projector_dim1
+                proj_dim2 = self.model_config.projector_dim2
+                proj_dim3 = self.model_config.projector_dim3
             self.autobot_model = AutoBotEgo(k_attr=self.k_attr,
                                             d_k=self.model_config.hidden_size,
                                             _M=self.num_other_agents,
@@ -101,7 +108,10 @@ class Evaluator:
                                             use_map_img=self.model_config.use_map_image,
                                             use_map_lanes=self.model_config.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=((self.model_config.reg_type in ["contrastive", "ranking"] and self.model_config.dataset == "synth") or self.model_config.dataset == "s2r")).to(self.device)
+                                            return_embeddings=((self.model_config.reg_type in ["contrastive", "ranking"] and self.model_config.dataset == "synth") or self.model_config.dataset == "s2r"),
+                                            projector_dim1=proj_dim1,
+                                            projector_dim2=proj_dim2,
+                                            projector_dim3=proj_dim3).to(self.device)
 
         elif "Joint" in self.model_config.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -268,17 +278,19 @@ class Evaluator:
             if self.args.evaluate_causal:
                 val_consistency = []
                 val_HNC, val_ARS = 0, []
+                NC_ACEs, IC_ACEs, DC_ACEs, Ignored_ACEs = [], [], [], []
             for i, data in enumerate(self.val_loader):
-                if i % 50 == 0:
+                if i % 400 == 0:
                     print(i, "/", len(self.val_loader.dataset) // self.args.batch_size)
 
                 if self.args.dataset == "synth":
-                    scenes, causal_effects, data_splits = data
+                    scenes, causal_effects, directly_causals, data_splits = data
                     if not self.args.evaluate_causal:
                         scenes = [data[data_splits[:-1]] for data in scenes]
                     ego_in, ego_out, agents_in, agents_out, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                    directly_causals = [torch.Tensor(directly_causal).bool().to(self.device) for directly_causal in directly_causals]
                 elif self.args.dataset == "trajnet++":
                     ego_in, ego_out, agents_in, agents_out, context_img, _ = self._data_to_device(data, "Joint")
                     roads = context_img
@@ -286,7 +298,7 @@ class Evaluator:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
                 if "Ego" in self.model_config.model_type:
-                    if self.model_config.dataset == "synth" and self.model_config.reg_type == "contrastive":
+                    if self.model_config.dataset == "synth" and self.model_config.reg_type in ["contrastive", "ranking"]:
                         pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
                     elif self.model_config.dataset == "s2r":
                         pred_obs, mode_probs, _ = self.autobot_model(ego_in, agents_in, roads)
@@ -301,11 +313,13 @@ class Evaluator:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2])
                     consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, 1)
                     batch_HNC, batch_ARS = HNC_ARS(pred_obs, causal_effects, data_splits)
+                    NC_ACE, IC_ACE, DC_ACE, Ignored_ACE = ACEs(pred_obs, causal_effects, directly_causals, data_splits)
                 else:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                 if self.args.dataset in ["synth", "trajnet++"]:
-                    coll_rate = collision_rate(pred_obs, agents_out)
-                    val_collision_rates.append(coll_rate)
+                    # coll_rate = collision_rate(pred_obs, agents_out)
+                    # val_collision_rates.append(coll_rate)
+                    pass
 
                 val_ade_losses.append(ade_losses)
                 val_fde_losses.append(fde_losses)
@@ -314,6 +328,10 @@ class Evaluator:
                     val_consistency.append(consistency_loss.item())
                     val_HNC += batch_HNC
                     val_ARS += batch_ARS
+                    NC_ACEs.append(NC_ACE)
+                    IC_ACEs.append(IC_ACE)
+                    DC_ACEs.append(DC_ACE)
+                    Ignored_ACEs.append(Ignored_ACE)
                 else:
                     val_mode_probs.append(mode_probs.detach().cpu().numpy())
 
@@ -322,6 +340,25 @@ class Evaluator:
             val_mode_probs = np.concatenate(val_mode_probs)
             if self.args.evaluate_causal:
                 val_ARS = np.concatenate(val_ARS).mean()
+                NC_ACEs = torch.concatenate(NC_ACEs).cpu().numpy()
+                IC_ACEs = torch.concatenate(IC_ACEs).cpu().numpy()
+                DC_ACEs = torch.concatenate(DC_ACEs).cpu().numpy()
+                Ignored_ACEs = torch.concatenate(Ignored_ACEs).cpu().numpy()
+
+                def calculate_uniform_ACE(ACE):
+                    bin_edges = np.linspace(0.1, 2.1, 20)
+                    num_bins = 19
+                    ACE_bins = []
+                    for i in range(num_bins):
+                        bin_mask = (ACE[:, 1] >= bin_edges[i]) & (ACE[:, 1] < bin_edges[i + 1])
+                        ACE_bins.append(ACE[bin_mask, 0].mean())
+                    return np.array(ACE_bins).mean()
+
+                print("NC_ACE:", NC_ACEs[:, 0].mean(), "DC_ACE:", calculate_uniform_ACE(DC_ACEs), "IC_ICE:",
+                      calculate_uniform_ACE(IC_ACEs), "Ignored_ACE:", Ignored_ACEs[:, 0].mean())
+                print("ACE:", np.concatenate([NC_ACEs, DC_ACEs, IC_ACEs, Ignored_ACEs], axis=0)[:, 0].mean())
+                with open(os.path.join(self.model_dirname, "ACEs.pkl"), "wb") as f:
+                    pickle.dump((NC_ACEs, IC_ACEs, DC_ACEs, Ignored_ACEs), f)
 
             val_minade_c = min_xde_K(val_ade_losses, val_mode_probs, K=self.model_config.num_modes)
             val_minade_10 = min_xde_K(val_ade_losses, val_mode_probs, K=min(self.model_config.num_modes, 10))
@@ -338,9 +375,6 @@ class Evaluator:
                 print("minADE_{}:".format(self.model_config.num_modes), val_minade_c[0],
                       "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
                       "minFDE_{}:".format(self.model_config.num_modes), val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
-            if self.args.dataset in ["synth", "trajnet++"]:
-                val_collision_rates = np.concatenate(val_collision_rates)
-                print("Collision Rate:", val_collision_rates.mean())
 
 
     def evaluate(self):

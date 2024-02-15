@@ -17,7 +17,9 @@ from models.autobot_ego import AutoBotEgo
 from models.autobot_joint import AutoBotJoint
 from process_args import get_train_args
 from utils.metric_helpers import min_xde_K
-from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss, calc_ranking_loss
+from utils.train_helpers import nll_loss_multimodes, nll_loss_multimodes_joint, calc_consistency_loss, HNC_ARS, calc_contrastive_loss, calc_ranking_loss, ACEs
+import wandb
+import pickle
 
 
 class Trainer:
@@ -39,7 +41,13 @@ class Trainer:
                                     eps=self.args.adam_epsilon)
 
         if self.args.weight_path != "":
-                self.load_optimiser()
+            self.load_optimiser()
+            new_learning_rate = self.args.learning_rate
+            for milestone in self.args.learning_rate_sched:
+                if self.args.start_epoch >= milestone:
+                    new_learning_rate *= 0.5
+            for param_group in self.optimiser.param_groups:
+                param_group['lr'] = new_learning_rate
 
         self.optimiser_scheduler = MultiStepLR(self.optimiser, milestones=args.learning_rate_sched, gamma=0.5,
                                                verbose=True, last_epoch=self.args.start_epoch if self.args.weight_path != "" else -1)
@@ -164,7 +172,10 @@ class Trainer:
                                             use_map_img=self.args.use_map_image,
                                             use_map_lanes=self.args.use_map_lanes,
                                             map_attr=self.map_attr,
-                                            return_embeddings=((self.args.reg_type in ["contrastive", "ranking"] and self.args.dataset == "synth") or self.args.dataset == "s2r")).to(self.device)
+                                            return_embeddings=((self.args.reg_type in ["contrastive", "ranking"] and self.args.dataset == "synth") or self.args.dataset == "s2r"),
+                                            projector_dim1=self.args.projector_dim1,
+                                            projector_dim2=self.args.projector_dim2,
+                                            projector_dim3=self.args.projector_dim3).to(self.device)
 
         elif "Joint" in self.args.model_type:
             self.autobot_model = AutoBotJoint(k_attr=self.k_attr,
@@ -248,8 +259,22 @@ class Trainer:
 
     def autobotego_train(self):
         steps = 0
+        if self.args.reg_type in ["ranking", "contrastive"]:
+            print("Freezing the model except the contrastive projector")
+            for param in self.autobot_model.parameters():
+                param.requires_grad = False
+            for param in self.autobot_model.contrastive_projector.parameters():
+                param.requires_grad = True
         for epoch in range(self.args.start_epoch, self.args.num_epochs):
             print("Epoch:", epoch)
+            if self.args.reg_type in ["contrastive", "ranking"] and epoch - self.args.start_epoch == self.args.num_proj_warmup_epochs:
+                print("Unfreezing the model")
+                for param in self.autobot_model.parameters():
+                    param.requires_grad = True
+            # adjusting the learning rate for ranking
+            if self.args.reg_type == "ranking":
+                for param_group in self.optimiser.param_groups:
+                    param_group['lr'] *= 10
             epoch_ade_losses = []
             epoch_fde_losses = []
             epoch_mode_probs = []
@@ -263,8 +288,9 @@ class Trainer:
 
             for i, data in enumerate(self.train_loader):
                 if self.args.dataset == "synth":
-                    scenes, causal_effects, data_splits = data
+                    scenes, causal_effects, directly_causals, data_splits = data
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                    directly_causals = [torch.Tensor(directly_causal).bool().to(self.device) for directly_causal in directly_causals]
                     if self.args.reg_type == "None":
                         scenes = [data[data_splits[:-1]] for data in scenes]
                     elif self.args.reg_type == "augment":
@@ -349,16 +375,16 @@ class Trainer:
                     consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, self.args.consistency_weight)
 
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
-                    contrastive_loss = calc_contrastive_loss(embeds, causal_effects, data_splits, self.args.contrastive_weight)
+                    contrastive_loss, poisoned_prop = calc_contrastive_loss(embeds, causal_effects, directly_causals, data_splits, self.args.contrastive_weight, poison_prob=self.args.poison_prob)
 
                 elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
-                    ranking_loss = calc_ranking_loss(embeds, causal_effects, data_splits, self.args.ranking_weight)
+                    ranking_loss, ranking_accuracy = calc_ranking_loss(embeds, causal_effects, directly_causals, data_splits, self.args.ranking_weight, self.args.ranking_margin, self.args.do_consecutive, poison_prob=self.args.poison_prob)
                 
                 elif self.args.dataset == "s2r" and self.args.reg_type == "contrastive":
                     contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
 
                 elif self.args.dataset == "s2r" and self.args.reg_type == "ranking":
-                    ranking_loss = calc_ranking_loss(embeds_sim, causal_effects, data_splits, self.args.ranking_weight)
+                    ranking_loss = calc_ranking_loss(embeds_sim, causal_effects, data_splits, self.args.ranking_weight, self.args.ranking_margin)
                 
 
                 self.optimiser.zero_grad()
@@ -396,8 +422,11 @@ class Trainer:
                     self.writer.add_scalar("Loss/consistency", consistency_loss.item(), steps)
                 elif self.args.dataset == "synth" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
+                    wandb.log({"Loss/nll": nll_loss.item(), "Loss/adefde": adefde_loss.item(), "contrastive_loss": contrastive_loss.item() / self.args.contrastive_weight, "epoch": epoch, "batch": i, "poisoned_prop": poisoned_prop})
                 elif self.args.dataset == "synth" and self.args.reg_type == "ranking":
                     self.writer.add_scalar("Loss/ranking", ranking_loss.item(), steps)
+                    wandb.log({"Loss/nll": nll_loss.item(), "Loss/adefde": adefde_loss.item(),
+                               "Loss/ranking_loss": ranking_loss.item() / self.args.ranking_weight * 1000, "epoch": epoch, "ranking accuracy": ranking_accuracy})
                 elif self.args.dataset == "s2r" and self.args.reg_type == "contrastive":
                     self.writer.add_scalar("Loss/contrastive", contrastive_loss.item(), steps)
                 elif self.args.dataset == "s2r" and self.args.reg_type == "ranking":
@@ -509,9 +538,9 @@ class Trainer:
             if self.args.dataset == "synth" and self.args.reg_type == "consistency":
                 self.consistency_scheduler.step()
 
-            if epoch % self.args.val_every == 0:
+            if (epoch + 1) % self.args.val_every == 0:
                 self.autobotego_evaluate(epoch)
-            self.save_model(epoch)
+            self.save_model(epoch + 1)
             print("Best minADE c", self.smallest_minade_k, "Best minFDE c", self.smallest_minfde_k)
 
     def autobotego_evaluate(self, epoch):
@@ -523,15 +552,16 @@ class Trainer:
             if self.args.evaluate_causal:
                 val_consistency = []
                 val_HNC, val_ARS = 0, []
-
+                NC_ACEs, IC_ACEs, DC_ACEs, Ignored_ACEs = [], [], [], []
             for i, data in enumerate(self.val_loader):
                 if self.args.dataset == "synth":
-                    scenes, causal_effects, data_splits = data
+                    scenes, causal_effects, directly_causals, data_splits = data
                     if not self.args.evaluate_causal:
                         scenes = [data[data_splits[:-1]] for data in scenes]
                     ego_in, ego_out, agents_in, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads = context_img
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                    directly_causals = [torch.Tensor(directly_causal).bool().to(self.device) for directly_causal in directly_causals]
                 elif  "trajnet++" in self.args.dataset:
                     ego_in, ego_out, agents_in, context_img = self._data_to_device(data)
                     roads = context_img
@@ -548,6 +578,7 @@ class Trainer:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs[:, :, data_splits[:-1], :], ego_out[data_splits[:-1], :, :2])
                     consistency_loss = calc_consistency_loss(pred_obs, causal_effects, data_splits, self.args.consistency_weight)
                     batch_HNC, batch_ARS = HNC_ARS(pred_obs, causal_effects, data_splits)
+                    NC_ACE, IC_ACE, DC_ACE, Ignored_ACE = ACEs(pred_obs, causal_effects, directly_causals, data_splits)
                 else:
                     ade_losses, fde_losses = self._compute_ego_errors(pred_obs, ego_out)
                 val_ade_losses.append(ade_losses)
@@ -557,6 +588,10 @@ class Trainer:
                     val_consistency.append(consistency_loss.item())
                     val_HNC += batch_HNC
                     val_ARS += batch_ARS
+                    NC_ACEs.append(NC_ACE)
+                    IC_ACEs.append(IC_ACE)
+                    DC_ACEs.append(DC_ACE)
+                    Ignored_ACEs.append(Ignored_ACE)
                 else:
                     val_mode_probs.append(mode_probs.detach().cpu().numpy())
 
@@ -565,7 +600,25 @@ class Trainer:
             val_mode_probs = np.concatenate(val_mode_probs)
             if self.args.evaluate_causal:
                 val_ARS = np.concatenate(val_ARS).mean()
+                NC_ACEs = torch.concatenate(NC_ACEs).cpu().numpy()
+                IC_ACEs = torch.concatenate(IC_ACEs).cpu().numpy()
+                DC_ACEs = torch.concatenate(DC_ACEs).cpu().numpy()
+                Ignored_ACEs = torch.concatenate(Ignored_ACEs).cpu().numpy()
 
+                def calculate_uniform_ACE(ACE):
+                    bin_edges = np.linspace(0.1, 2.1, 20)
+                    num_bins = 19
+                    ACE_bins = []
+                    for i in range(num_bins):
+                        bin_mask = (ACE[:, 1] >= bin_edges[i]) & (ACE[:, 1] < bin_edges[i + 1])
+                        ACE_bins.append(ACE[bin_mask, 0].mean())
+                    return np.array(ACE_bins).mean()
+
+                print("NC_ACE:", NC_ACEs[:, 0].mean(), "DC_ACE:", calculate_uniform_ACE(DC_ACEs), "IC_ICE:",
+                      calculate_uniform_ACE(IC_ACEs), "Ignored_ACE:", Ignored_ACEs[:, 0].mean(), "ACE:", np.concatenate([NC_ACEs, DC_ACEs, IC_ACEs, Ignored_ACEs], axis=0)[:, 0].mean())
+
+                with open(os.path.join(self.results_dirname, "ACEs.pkl"), "wb") as f:
+                    pickle.dump((NC_ACEs, IC_ACEs, DC_ACEs, Ignored_ACEs), f)
             val_minade_c = min_xde_K(val_ade_losses, val_mode_probs, K=self.args.num_modes)
             val_minade_10 = min_xde_K(val_ade_losses, val_mode_probs, K=min(self.args.num_modes, 10))
             val_minade_5 = min_xde_K(val_ade_losses, val_mode_probs, K=5)
@@ -588,6 +641,10 @@ class Trainer:
                 print("minADE c:", val_minade_c[0], "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
                       "minFDE c:", val_minfde_c[0], "minFDE_1:", val_minfde_1[0], "Consistency:",
                       round(np.array(val_consistency).mean(), 2), "HNC:", val_HNC, "ARS:", round(val_ARS, 2))
+                wandb.log({"NC_ACE": NC_ACEs[:, 0].mean(), "DC_ACE": calculate_uniform_ACE(DC_ACEs),
+                           "IC_ACE": calculate_uniform_ACE(IC_ACEs), "Ignored_ACE": Ignored_ACEs[:, 0].mean(),
+                           "ACE": np.concatenate([NC_ACEs, DC_ACEs, IC_ACEs, Ignored_ACEs], axis=0)[:, 0].mean(),
+                           "epoch": epoch, "minADE": val_minade_c[0], "minFDE": val_minfde_1[0]})
             else:
                 print("minADE c:", val_minade_c[0], "minADE_10", val_minade_10[0], "minADE_5", val_minade_5[0],
                       "minFDE c:", val_minfde_c[0], "minFDE_1:", val_minfde_1[0])
@@ -809,7 +866,7 @@ class Trainer:
     def load_optimiser(self):
         weights = torch.load(self.args.weight_path)
 
-        if self.args.reg_type in ["contrastive", "ranking"]:
+        if self.args.reg_type in ["contrastive", "ranking"] and "contrastive_projector.0.weight" not in weights["AutoBot"].keys():
             for param_group in self.optimiser.param_groups:
                 param_group['initial_lr'] = weights["optimiser"]['param_groups'][0]['initial_lr']
                 param_group['lr'] = weights["optimiser"]['param_groups'][0]['lr']
@@ -864,5 +921,16 @@ class Trainer:
 
 if __name__ == "__main__":
     args, results_dirname = get_train_args()
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="AutoBots",
+        name="Contrastive" if args.reg_type=="contrastive" else "Ranking",
+        # track hyperparameters and run metadata
+        config={
+            "W": args.contrastive_weight if args.reg_type=="contrastive" else args.ranking_weight,
+            "rank_consecutive": args.do_consecutive if args.reg_type=="ranking" else None,
+            "lr": args.learning_rate,
+        }
+    )
     trainer = Trainer(args, results_dirname)
     trainer.train()

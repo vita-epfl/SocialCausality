@@ -36,13 +36,18 @@ def get_train_args():
                         help="hidden size of transformer layers' feedforward network.")
     parser.add_argument("--tx-num-heads", type=int, default=16, help="Transformer number of heads.")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout strenght used throughout model.")
+    parser.add_argument("--projector-dim1", type=int, default=256, help="Projector's first hidden dim.")
+    parser.add_argument("--projector-dim2", type=int, default=128, help="Projector's second hidden dim.")
+    parser.add_argument("--projector-dim3", type=int, default=0, help="Projector's third hidden dim.")
 
     # Section: Loss Function
     parser.add_argument("--entropy-weight", type=float, default=40.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--consistency-weight", type=float, default=1.0, metavar="lamda", help="Weight of consistency loss.")
     parser.add_argument("--contrastive-weight", type=float, default=1000.0, metavar="lamda", help="Weight of contrastive loss.")
-    parser.add_argument("--ranking-weight", type=float, default=1000.0, metavar="lamda", help="Weight of ranking loss.")
+    parser.add_argument("--poison-prob", type=float, default=0.0, metavar="lambda", help="Weight of poisonous indirect-causals.")
+    parser.add_argument("--ranking-weight", type=float, default=10000000.0, metavar="lamda", help="Weight of ranking loss.")
     parser.add_argument("--ranking-margin", type=float, default=0.001, metavar="lamda", help="Margin of ranking loss.")
+    parser.add_argument("--do-consecutive", action="store_true", help="Evaluates causality understanding metrics.")
     parser.add_argument("--kl-weight", type=float, default=20.0, metavar="lamda", help="Weight of entropy loss.")
     parser.add_argument("--use-FDEADE-aux-loss", type=bool, default=True,
                         help="Whether to use FDE/ADE auxiliary loss in addition to NLL (accelerates learning).")
@@ -60,6 +65,8 @@ def get_train_args():
     parser.add_argument("--grad-clip-norm", type=float, default=5, metavar="C", help="Gradient clipping norm")
     parser.add_argument("--num-epochs", type=int, default=750, metavar="I",
                         help="number of iterations through the dataset.")
+    parser.add_argument("--num-proj-warmup-epochs", type=int, default=0,
+                        help="number of iterations through the dataset for warming the projector up.")
     parser.add_argument("--save-every", type=int, default=50, help="Frequency of saving model.")
     parser.add_argument("--val-every", type=int, default=50, help="Frequency of validating model.")
 
@@ -102,7 +109,7 @@ def get_eval_args():
     parser.add_argument("--dataset", type=str, default="synth", choices=["Argoverse", "Nuscenes", "trajnet++",
                                                                        "interaction-dataset", "synth", 's2r'], help="Dataset to evaluate on.")
     parser.add_argument("--dataset-path", type=str, required=True, help="Dataset path.")
-    parser.add_argument("--batch-size", type=int, default=200, help="Batch size")
+    parser.add_argument("--batch-size", type=int, default=50, help="Batch size")
     parser.add_argument("--disable-cuda", action="store_true", help="Disable CUDA")
     parser.add_argument("--evaluate_causal", action="store_true", help="Evaluates causality understanding metrics.")
     args = parser.parse_args()
@@ -137,9 +144,12 @@ def create_results_folder(args):
         if args.reg_type == "consistency":
             model_configname += "_W:" + str(int(args.consistency_weight))
         elif args.reg_type == "contrastive":
-            model_configname += "_W:" + str(int(args.contrastive_weight))
+            model_configname += "_W:" + str(int(args.contrastive_weight)) + "_LR:" + str(args.learning_rate)
+            model_configname += "_Proj:" + str(args.projector_dim1) + "_" + str(args.projector_dim2) + "_" + str(
+                args.projector_dim3) + "_PP:" + str(args.poison_prob)
         elif args.reg_type == "ranking":
-            model_configname += "_W:" + str(int(args.ranking_weight)) + "_M:" + str(args.ranking_margin)
+            model_configname += "_W:" + str(int(args.ranking_weight)) + "_M:" + str(args.ranking_margin) + "_C:" + str(args.do_consecutive) + "_LR:" + str(args.learning_rate)
+            model_configname += "_Proj:" + str(args.projector_dim1) + "_" + str(args.projector_dim2) + "_" + str(args.projector_dim3) + "_PP:" + str(args.poison_prob)
         
     if args.exp_id is not None:
         model_configname += ("_" + args.exp_id)

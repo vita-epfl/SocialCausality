@@ -74,7 +74,7 @@ class AutoBotEgo(nn.Module):
     AutoBot-Ego Class.
     '''
     def __init__(self, d_k=128, _M=5, c=5, T=30, L_enc=1, dropout=0.0, k_attr=2, map_attr=3,
-                 num_heads=16, L_dec=1, tx_hidden_size=384, use_map_img=False, use_map_lanes=False, return_embeddings=False):
+                 num_heads=16, L_dec=1, tx_hidden_size=384, use_map_img=False, use_map_lanes=False, return_embeddings=False, projector_dim1=128, projector_dim2=16, projector_dim3=0):
         super(AutoBotEgo, self).__init__()
 
         init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
@@ -93,6 +93,9 @@ class AutoBotEgo(nn.Module):
         self.use_map_img = use_map_img
         self.use_map_lanes = use_map_lanes
         self.return_embeddings = return_embeddings
+        self.projector_dim1 = projector_dim1
+        self.projector_dim2 = projector_dim2
+        self.projector_dim3 = projector_dim3
 
         # INPUT ENCODERS
         self.agents_dynamic_encoder = nn.Sequential(init_(nn.Linear(k_attr, d_k)))
@@ -126,11 +129,20 @@ class AutoBotEgo(nn.Module):
         # ============================== Contrastive Projector ==========================
         if self.return_embeddings:
             input_dim = d_k * 8
-            self.contrastive_projector = nn.Sequential(
-                torch.nn.Linear(input_dim, input_dim // 8),
-                torch.nn.ReLU(inplace=True),
-                torch.nn.Linear(input_dim // 8, input_dim // 64)
-            )
+            if self.projector_dim3 == 0:
+                self.contrastive_projector = nn.Sequential(
+                    torch.nn.Linear(input_dim, self.projector_dim1),
+                    torch.nn.ReLU(inplace=True),
+                    torch.nn.Linear(self.projector_dim1, self.projector_dim2)
+                )
+            else:
+                self.contrastive_projector = nn.Sequential(
+                    torch.nn.Linear(input_dim, self.projector_dim1),
+                    torch.nn.ReLU(inplace=True),
+                    torch.nn.Linear(self.projector_dim1, self.projector_dim2),
+                    torch.nn.ReLU(inplace=True),
+                    torch.nn.Linear(self.projector_dim2, self.projector_dim3)
+                )
 
         # ============================== AutoBot-Ego DECODER ==============================
         self.Q = nn.Parameter(torch.Tensor(self.T, 1, self.c, self.d_k), requires_grad=True)
