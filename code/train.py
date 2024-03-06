@@ -135,11 +135,11 @@ class Trainer:
             )
             # Sim
             self.train_loader_sim = torch.utils.data.DataLoader(
-                train_dset_sim, batch_size=args.batch_size_sim, shuffle=True, num_workers=12, drop_last=False,
+                train_dset_sim, batch_size=self.args.batch_size_sim, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
             )
             self.val_loader_sim = torch.utils.data.DataLoader(
-                val_dset_sim, batch_size=args.batch_size_sim, shuffle=True, num_workers=12, drop_last=False,
+                val_dset_sim, batch_size=self.args.batch_size_sim, shuffle=True, num_workers=12, drop_last=False,
                 pin_memory=False, collate_fn=my_collate_fn
             )
         else:
@@ -308,8 +308,9 @@ class Trainer:
                 elif self.args.dataset == "s2r":
                     data_real, data_sim = data
                     # sim 
-                    scenes, causal_effects, data_splits = data_sim
+                    scenes, causal_effects, directly_causals, data_splits = data_sim # bug
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
+                    directly_causals = [torch.Tensor(directly_causal).bool().to(self.device) for directly_causal in directly_causals]
                     # augmentation
                     if self.args.reg_type == "augment":
                         mask = np.zeros(len(scenes[0]))
@@ -321,10 +322,9 @@ class Trainer:
 
                     ego_in_sim, ego_out_sim, agents_in_sim, _, context_img, _ = self._data_to_device(scenes, "Joint")
                     roads_sim = context_img
-
+                   
                     # real
                     ego_in_real, ego_out_real, agents_in_real, roads_real = self._data_to_device(data_real)
-
                 else:
                     ego_in, ego_out, agents_in, roads = self._data_to_device(data)
 
@@ -381,10 +381,10 @@ class Trainer:
                     ranking_loss, ranking_accuracy = calc_ranking_loss(embeds, causal_effects, directly_causals, data_splits, self.args.ranking_weight, self.args.ranking_margin, self.args.do_consecutive, poison_prob=self.args.poison_prob)
                 
                 elif self.args.dataset == "s2r" and self.args.reg_type == "contrastive":
-                    contrastive_loss = calc_contrastive_loss(embeds_sim, causal_effects, data_splits, self.args.contrastive_weight)
+                    contrastive_loss, poisoned_prop = calc_contrastive_loss(embeds_sim, causal_effects, directly_causals, data_splits, self.args.contrastive_weight, poison_prob=self.args.poison_prob)
 
                 elif self.args.dataset == "s2r" and self.args.reg_type == "ranking":
-                    ranking_loss = calc_ranking_loss(embeds_sim, causal_effects, data_splits, self.args.ranking_weight, self.args.ranking_margin)
+                    ranking_loss, ranking_accuracy = calc_ranking_loss(embeds_sim, causal_effects, directly_causals, data_splits, self.args.ranking_weight, self.args.ranking_margin, self.args.do_consecutive, poison_prob=self.args.poison_prob)
                 
 
                 self.optimiser.zero_grad()

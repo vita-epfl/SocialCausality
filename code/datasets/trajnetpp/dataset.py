@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 class TrajNetPPDataset(Dataset):
     def __init__(self, dset_path, split_name="train", proportion=1.0):
-        self.num_others = 17
+        self.num_others = 38
         self.pred_horizon = 12
         self.num_agent_types = 1  # code assuming only one type of agent (pedestrians).
         self.in_seq_len = 8
