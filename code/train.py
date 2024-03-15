@@ -272,7 +272,7 @@ class Trainer:
                 for param in self.autobot_model.parameters():
                     param.requires_grad = True
             # adjusting the learning rate for ranking
-            if self.args.reg_type == "ranking":
+            if self.args.reg_type == "ranking" and self.args.dataset != "s2r":
                 for param_group in self.optimiser.param_groups:
                     param_group['lr'] *= 10
             epoch_ade_losses = []
@@ -308,7 +308,7 @@ class Trainer:
                 elif self.args.dataset == "s2r":
                     data_real, data_sim = data
                     # sim 
-                    scenes, causal_effects, directly_causals, data_splits = data_sim # bug
+                    scenes, causal_effects, directly_causals, data_splits = data_sim 
                     causal_effects = [torch.Tensor(causal_effect).float().to(self.device) for causal_effect in causal_effects]
                     directly_causals = [torch.Tensor(directly_causal).bool().to(self.device) for directly_causal in directly_causals]
                     # augmentation

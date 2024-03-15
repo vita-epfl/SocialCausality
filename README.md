@@ -81,29 +81,29 @@ python evaluate.py --models-path <path to the model> --dataset-path <path to the
 
 To train the [AutoBots](https://openreview.net/forum?id=Dup_dDqkZC5) baseline on the ETH-UCY dataset:
 ```
-python train.py --exp-id <output tag> --dataset s2r --reg-type contrastive --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --contrastive-weight 0.0 --save-dir <directory for saving results> 
+python train.py --exp-id <output tag> --dataset trajnet++ --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --save-dir <directory for saving results> 
 ```
 
 To run the vanilla sim2real, i.e., training on the ETH-UCY and our diagnostic datasets jointly:
 ```
-python train.py --exp-id <output tag> --dataset s2r --reg-type baseline --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
+python train.py --exp-id <output tag> --dataset s2r --reg-type baseline  --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
 ```
 
 To run the data augmentation sim2real:
 ```
-python train.py --exp-id <output tag> --dataset s2r --reg-type augment --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
+python train.py --exp-id <output tag> --dataset s2r --reg-type augment  --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --save-dir <directory for saving results> 
 ```
 
 ### Causal Sim2Real
 
 To run our causal contrastive sim2real:
 ```
-python train.py --exp-id <output tag> --dataset s2r --reg-type contrastive --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --contrastive-weight <weight of contrastive loss> --save-dir <directory for saving results> 
+python train.py --exp-id <output tag> --dataset s2r --reg-type contrastive  --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --contrastive-weight <weight of contrastive loss> --save-dir <directory for saving results> 
 ```
 
 To run the causal ranking sim2real:
 ```
-python train.py --exp-id <output tag> --dataset s2r --reg-type ranking --dataset-path <path to the ETH-UCY dataset> --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --ranking-weight <weight of ranking loss> --save-dir <directory for saving results> 
+python train.py --exp-id <output tag> --dataset s2r --reg-type ranking  --num-encoder-layers 1 --num-decoder-layers 1 --num-epochs 50 --learning-rate-sched 10 20 30 40 50 --low-data 1.0 --dataset-path-real <path to the ETH-UCY dataset> --dataset-path-synth <path to the synthetic dataset> --ranking-weight <weight of ranking loss> --save-dir <directory for saving results> 
 ```
 
 ### Evaluation
